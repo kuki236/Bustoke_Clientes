@@ -12,7 +12,7 @@ const DEFAULT_ORIGIN = 'Lima'
 const DEFAULT_DESTINATION = 'Trujillo'
 const DEFAULT_DATE = '15/06/2026'
 
-export default function ResultsPage({ values, onBack, onChooseSeats }) {
+export default function ResultsPage({ values, onBack, onChooseSeats, onNavigate }) {
   const [draftValues, setDraftValues] = useState(values)
   const [selectedTripId, setSelectedTripId] = useState(null)
 
@@ -34,7 +34,7 @@ export default function ResultsPage({ values, onBack, onChooseSeats }) {
   return (
     <div className="min-h-screen bg-neutral-100">
       <div className="hidden md:block">
-        <Navbar />
+        <Navbar onNavigate={onNavigate} active="buscar" />
         <div className="md:grid md:grid-cols-[300px_1fr] gap-8 p-8 max-w-7xl mx-auto">
           <FilterSidebar values={draftValues} onChange={handleFieldChange} />
 
@@ -91,7 +91,7 @@ export default function ResultsPage({ values, onBack, onChooseSeats }) {
             </button>
           )}
         </main>
-        <BottomNav active="search" />
+        <BottomNav active="buscar" onNavigate={onNavigate} />
       </div>
     </div>
   )

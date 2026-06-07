@@ -422,6 +422,7 @@ function PaymentPanel({
   onToggleTerms,
   total,
   onPay,
+  isProcessing = false,
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -448,14 +449,14 @@ function PaymentPanel({
         <button
           type="button"
           onClick={onPay}
-          disabled={!acceptedTerms}
+          disabled={!acceptedTerms || isProcessing}
           className={`w-full py-3 rounded-xl font-medium transition-colors ${
-            acceptedTerms
+            acceptedTerms && !isProcessing
               ? 'bg-blue-600 text-white hover:bg-blue-700'
               : 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
           }`}
         >
-          Pagar S/ {total.toFixed(2)}
+          {isProcessing ? 'Procesando pago…' : `Pagar S/ ${total.toFixed(2)}`}
         </button>
       </div>
     </div>
@@ -468,6 +469,8 @@ export default function CheckoutPage({
   total,
   date,
   onBack,
+  onPaymentSuccess,
+  onNavigate,
 }) {
   const [passengers, setPassengers] = useState(() =>
     selectedSeats.map((s) => getEmptyPassenger(formatSeat(s))),
@@ -475,20 +478,29 @@ export default function CheckoutPage({
   const [buyer, setBuyer] = useState(getEmptyBuyer)
   const [paymentMethod, setPaymentMethod] = useState('card')
   const [acceptedTerms, setAcceptedTerms] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
 
   const handleChangePassenger = (index, updated) => {
     setPassengers((prev) => prev.map((p, i) => (i === index ? updated : p)))
   }
 
   const handlePay = () => {
-    if (!acceptedTerms) return
-    /* TODO: integrate with payments backend */
+    if (!acceptedTerms || isProcessing) return
+    setIsProcessing(true)
+    setTimeout(() => {
+      setIsProcessing(false)
+      onPaymentSuccess?.({
+        passengers,
+        buyer,
+        paymentMethod,
+      })
+    }, 600)
   }
 
   return (
     <div className="min-h-screen bg-neutral-100">
       <div className="hidden md:block">
-        <Navbar />
+        <Navbar onNavigate={onNavigate} active="buscar" />
         <div className="max-w-7xl mx-auto p-8 flex flex-col gap-6">
           <button
             type="button"
@@ -521,6 +533,7 @@ export default function CheckoutPage({
                 onToggleTerms={setAcceptedTerms}
                 total={total}
                 onPay={handlePay}
+                isProcessing={isProcessing}
               />
             </aside>
           </div>
@@ -615,19 +628,19 @@ export default function CheckoutPage({
             <button
               type="button"
               onClick={handlePay}
-              disabled={!acceptedTerms}
+              disabled={!acceptedTerms || isProcessing}
               className={`flex-1 py-3 rounded-xl font-medium transition-colors ${
-                acceptedTerms
+                acceptedTerms && !isProcessing
                   ? 'bg-blue-600 text-white hover:bg-blue-700'
                   : 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
               }`}
             >
-              Pagar S/ {total.toFixed(2)}
+              {isProcessing ? 'Procesando pago…' : `Pagar S/ ${total.toFixed(2)}`}
             </button>
           </div>
         </div>
 
-        <BottomNav active="search" />
+        <BottomNav active="buscar" onNavigate={onNavigate} />
       </div>
     </div>
   )

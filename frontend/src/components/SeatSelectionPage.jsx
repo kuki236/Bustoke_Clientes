@@ -316,7 +316,7 @@ function CheckoutBar({ selectedSeats, total, onContinue, dense = false }) {
   )
 }
 
-export default function SeatSelectionPage({ trip, date, onBack, onContinue }) {
+export default function SeatSelectionPage({ trip, date, onBack, onContinue, onNavigate }) {
   const [selectedSeats, setSelectedSeats] = useState([])
   const [activeFloor, setActiveFloor] = useState('1')
 
@@ -352,7 +352,7 @@ export default function SeatSelectionPage({ trip, date, onBack, onContinue }) {
   return (
     <div className="min-h-screen bg-neutral-100">
       <div className="hidden md:block">
-        <Navbar />
+        <Navbar onNavigate={onNavigate} active="buscar" />
         <div className="max-w-7xl mx-auto px-8 py-10">
           <header className="text-center mb-10">
             <h1 className="text-2xl font-bold text-neutral-900">
@@ -440,7 +440,7 @@ export default function SeatSelectionPage({ trip, date, onBack, onContinue }) {
           />
         </main>
 
-        <BottomNav active="search" />
+        <BottomNav active="buscar" onNavigate={onNavigate} />
       </div>
     </div>
   )
