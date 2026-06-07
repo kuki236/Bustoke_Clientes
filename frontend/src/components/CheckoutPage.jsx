@@ -1,0 +1,634 @@
+import { useState } from 'react'
+import { ArrowLeft, CreditCard, Smartphone } from 'lucide-react'
+import Navbar from './Navbar'
+import BottomNav from './BottomNav'
+
+const DOC_TYPES = ['DNI', 'CE', 'Pasaporte']
+const DEFAULT_DOC_TYPE = 'DNI'
+const DEFAULT_DATE = '15/06/2026'
+
+const PAYMENT_METHODS = [
+  {
+    id: 'card',
+    label: 'Tarjeta de Crédito/Débito',
+    logos: [
+      { label: 'VISA', color: 'text-blue-700' },
+      { label: 'MC', color: 'text-orange-600' },
+    ],
+    icon: CreditCard,
+  },
+  {
+    id: 'yape',
+    label: 'Yape/Plin',
+    logos: [
+      { label: 'Yape', color: 'text-fuchsia-600' },
+      { label: 'Plin', color: 'text-cyan-600' },
+    ],
+    icon: Smartphone,
+  },
+]
+
+function formatSeat(seatId) {
+  return seatId.split('-').slice(1).join('-')
+}
+
+function getEmptyPassenger(seat) {
+  return {
+    seat,
+    docType: DEFAULT_DOC_TYPE,
+    docNumber: '',
+    names: '',
+    paternalSurname: '',
+    maternalSurname: '',
+  }
+}
+
+function getEmptyBuyer() {
+  return {
+    docType: DEFAULT_DOC_TYPE,
+    docNumber: '',
+    names: '',
+    paternalSurname: '',
+    maternalSurname: '',
+    email: '',
+  }
+}
+
+function SelectField({ label, value, onChange, options, id }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label
+        htmlFor={id}
+        className="text-sm font-medium text-neutral-900"
+      >
+        {label}
+      </label>
+      <div className="relative">
+        <select
+          id={id}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full appearance-none px-3 py-2.5 pr-9 border border-neutral-400 rounded-lg text-sm text-neutral-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        >
+          {options.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
+          ))}
+        </select>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none"
+          aria-hidden="true"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </div>
+    </div>
+  )
+}
+
+function InputField({ label, value, onChange, placeholder, type = 'text', id }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label
+        htmlFor={id}
+        className="text-sm font-medium text-neutral-900"
+      >
+        {label}
+      </label>
+      <input
+        id={id}
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-3 py-2.5 border border-neutral-400 rounded-lg text-sm text-neutral-900 placeholder:text-neutral-400 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+      />
+    </div>
+  )
+}
+
+function PassengerBlock({ index, passenger, onChange }) {
+  const update = (field, value) => {
+    onChange(index, { ...passenger, [field]: value })
+  }
+
+  return (
+    <section className="flex flex-col gap-4">
+      <h3 className="text-base font-semibold text-neutral-900">
+        Pasajero {index + 1} - Asiento {passenger.seat}
+      </h3>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <SelectField
+          id={`pax-${index}-docType`}
+          label="Tipo de Documento"
+          value={passenger.docType}
+          onChange={(v) => update('docType', v)}
+          options={DOC_TYPES}
+        />
+        <InputField
+          id={`pax-${index}-docNumber`}
+          label="Número de Documento"
+          value={passenger.docNumber}
+          onChange={(v) => update('docNumber', v)}
+          placeholder="Ingresa el número"
+        />
+      </div>
+      <InputField
+        id={`pax-${index}-names`}
+        label="Nombres"
+        value={passenger.names}
+        onChange={(v) => update('names', v)}
+        placeholder="Ej. Juan Carlos"
+      />
+      <div className="grid sm:grid-cols-2 gap-4">
+        <InputField
+          id={`pax-${index}-paternal`}
+          label="Apellido Paterno"
+          value={passenger.paternalSurname}
+          onChange={(v) => update('paternalSurname', v)}
+          placeholder="Apellido paterno"
+        />
+        <InputField
+          id={`pax-${index}-maternal`}
+          label="Apellido Materno"
+          value={passenger.maternalSurname}
+          onChange={(v) => update('maternalSurname', v)}
+          placeholder="Apellido materno"
+        />
+      </div>
+    </section>
+  )
+}
+
+function BuyerBlock({ buyer, onChange }) {
+  const update = (field, value) => {
+    onChange({ ...buyer, [field]: value })
+  }
+
+  return (
+    <section className="flex flex-col gap-4">
+      <h3 className="text-base font-semibold text-neutral-900">
+        Datos del comprador
+      </h3>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <SelectField
+          id="buyer-docType"
+          label="Tipo de Documento"
+          value={buyer.docType}
+          onChange={(v) => update('docType', v)}
+          options={DOC_TYPES}
+        />
+        <InputField
+          id="buyer-docNumber"
+          label="Número de Documento"
+          value={buyer.docNumber}
+          onChange={(v) => update('docNumber', v)}
+          placeholder="Ingresa el número"
+        />
+      </div>
+      <InputField
+        id="buyer-names"
+        label="Nombres"
+        value={buyer.names}
+        onChange={(v) => update('names', v)}
+        placeholder="Ej. Juan Carlos"
+      />
+      <div className="grid sm:grid-cols-2 gap-4">
+        <InputField
+          id="buyer-paternal"
+          label="Apellido Paterno"
+          value={buyer.paternalSurname}
+          onChange={(v) => update('paternalSurname', v)}
+          placeholder="Apellido paterno"
+        />
+        <InputField
+          id="buyer-maternal"
+          label="Apellido Materno"
+          value={buyer.maternalSurname}
+          onChange={(v) => update('maternalSurname', v)}
+          placeholder="Apellido materno"
+        />
+      </div>
+      <InputField
+        id="buyer-email"
+        label="Correo Electrónico"
+        type="email"
+        value={buyer.email}
+        onChange={(v) => update('email', v)}
+        placeholder="correo@ejemplo.com"
+      />
+    </section>
+  )
+}
+
+function PaymentOption({ option, selected, onSelect }) {
+  const Icon = option.icon
+  return (
+    <label
+      className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer transition-colors ${
+        selected
+          ? 'border-blue-600 bg-blue-50'
+          : 'border-neutral-200 bg-white hover:border-neutral-400'
+      }`}
+    >
+      <input
+        type="radio"
+        name="paymentMethod"
+        value={option.id}
+        checked={selected}
+        onChange={() => onSelect(option.id)}
+        className="sr-only"
+      />
+      <span
+        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+          selected ? 'border-blue-600' : 'border-neutral-400'
+        }`}
+        aria-hidden="true"
+      >
+        {selected && <span className="w-2.5 h-2.5 rounded-full bg-blue-600" />}
+      </span>
+      <Icon className={`w-5 h-5 shrink-0 ${selected ? 'text-blue-600' : 'text-neutral-500'}`} />
+      <span className="flex-1 text-sm font-medium text-neutral-900">
+        {option.label}
+      </span>
+      <div className="flex items-center gap-1.5">
+        {option.logos.map((logo) => (
+          <span
+            key={logo.label}
+            className={`text-[10px] font-bold tracking-wide px-1.5 py-0.5 bg-white border border-neutral-200 rounded ${logo.color}`}
+          >
+            {logo.label}
+          </span>
+        ))}
+      </div>
+    </label>
+  )
+}
+
+function SummaryCard({ trip, selectedSeats, total, date }) {
+  const displaySeats = selectedSeats.map(formatSeat)
+  const displayDate = date || DEFAULT_DATE
+  return (
+    <article className="bg-white rounded-2xl shadow-card p-6 flex flex-col gap-4">
+      <h2 className="text-lg font-bold text-neutral-900">Resumen de Compra</h2>
+
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-neutral-600">Ruta</p>
+          <p className="text-base font-semibold text-neutral-900 leading-tight">
+            {trip.origin} a {trip.destination}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 justify-end shrink-0 max-w-[50%]">
+          {displaySeats.map((seat) => (
+            <span
+              key={seat}
+              className="inline-flex items-center justify-center min-w-8 h-7 px-2 text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-100 rounded-md"
+            >
+              {seat}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="h-px bg-neutral-200" />
+
+      <dl className="flex flex-col gap-2 text-sm">
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-neutral-600">Empresa</dt>
+          <dd className="font-medium text-neutral-900 text-right">{trip.company}</dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-neutral-600">Fecha</dt>
+          <dd className="font-medium text-neutral-900 text-right">{displayDate}</dd>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <dt className="text-neutral-600">Hora</dt>
+          <dd className="font-medium text-neutral-900 text-right">{trip.departureTime}</dd>
+        </div>
+      </dl>
+
+      <div className="h-px bg-neutral-200" />
+
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-neutral-600">Total</span>
+        <span className="text-2xl font-bold text-neutral-900">
+          S/ {total.toFixed(2)}
+        </span>
+      </div>
+    </article>
+  )
+}
+
+function TermsCheckbox({ checked, onChange, id }) {
+  return (
+    <label
+      htmlFor={id}
+      className="flex items-start gap-3 cursor-pointer text-sm text-neutral-700"
+    >
+      <span className="relative shrink-0 mt-0.5">
+        <input
+          id={id}
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          className="peer sr-only"
+        />
+        <span
+          className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+            checked
+              ? 'bg-blue-600 border-blue-600'
+              : 'bg-white border-neutral-400'
+          }`}
+          aria-hidden="true"
+        >
+          {checked && (
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-3.5 h-3.5 text-white"
+            >
+              <path d="M5 12l5 5L20 7" />
+            </svg>
+          )}
+        </span>
+      </span>
+      <span>
+        Acepto los{' '}
+        <span className="text-blue-600 font-medium">Términos y Condiciones</span>{' '}
+        y la{' '}
+        <span className="text-blue-600 font-medium">Política de Privacidad</span>.
+      </span>
+    </label>
+  )
+}
+
+function CheckoutForms({
+  passengers,
+  buyer,
+  onChangePassenger,
+  onChangeBuyer,
+}) {
+  return (
+    <div className="flex flex-col gap-6">
+      <article className="bg-white rounded-2xl shadow-card p-6 flex flex-col gap-6">
+        <h2 className="text-lg font-bold text-neutral-900">
+          Datos de los pasajeros
+        </h2>
+        <div className="flex flex-col gap-8">
+          {passengers.map((pax, i) => (
+            <div
+              key={`${pax.seat}-${i}`}
+              className={
+                i > 0
+                  ? 'pt-8 border-t border-neutral-200 flex flex-col gap-4'
+                  : 'flex flex-col gap-4'
+              }
+            >
+              <PassengerBlock
+                index={i}
+                passenger={pax}
+                onChange={onChangePassenger}
+              />
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <article className="bg-white rounded-2xl shadow-card p-6 flex flex-col gap-6">
+        <BuyerBlock buyer={buyer} onChange={onChangeBuyer} />
+      </article>
+    </div>
+  )
+}
+
+function PaymentPanel({
+  paymentMethod,
+  onSelectPayment,
+  acceptedTerms,
+  onToggleTerms,
+  total,
+  onPay,
+}) {
+  return (
+    <div className="flex flex-col gap-6">
+      <article className="bg-white rounded-2xl shadow-card p-6 flex flex-col gap-4">
+        <h2 className="text-lg font-bold text-neutral-900">Métodos de pago</h2>
+        <div className="flex flex-col gap-3">
+          {PAYMENT_METHODS.map((option) => (
+            <PaymentOption
+              key={option.id}
+              option={option}
+              selected={paymentMethod === option.id}
+              onSelect={onSelectPayment}
+            />
+          ))}
+        </div>
+      </article>
+
+      <div className="flex flex-col gap-4">
+        <TermsCheckbox
+          id="terms-desktop"
+          checked={acceptedTerms}
+          onChange={onToggleTerms}
+        />
+        <button
+          type="button"
+          onClick={onPay}
+          disabled={!acceptedTerms}
+          className={`w-full py-3 rounded-xl font-medium transition-colors ${
+            acceptedTerms
+              ? 'bg-blue-600 text-white hover:bg-blue-700'
+              : 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
+          }`}
+        >
+          Pagar S/ {total.toFixed(2)}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default function CheckoutPage({
+  trip,
+  selectedSeats,
+  total,
+  date,
+  onBack,
+}) {
+  const [passengers, setPassengers] = useState(() =>
+    selectedSeats.map((s) => getEmptyPassenger(formatSeat(s))),
+  )
+  const [buyer, setBuyer] = useState(getEmptyBuyer)
+  const [paymentMethod, setPaymentMethod] = useState('card')
+  const [acceptedTerms, setAcceptedTerms] = useState(false)
+
+  const handleChangePassenger = (index, updated) => {
+    setPassengers((prev) => prev.map((p, i) => (i === index ? updated : p)))
+  }
+
+  const handlePay = () => {
+    if (!acceptedTerms) return
+    /* TODO: integrate with payments backend */
+  }
+
+  return (
+    <div className="min-h-screen bg-neutral-100">
+      <div className="hidden md:block">
+        <Navbar />
+        <div className="max-w-7xl mx-auto p-8 flex flex-col gap-6">
+          <button
+            type="button"
+            onClick={onBack}
+            className="flex items-center gap-2 text-sm font-medium text-neutral-600 hover:text-blue-600 transition-colors self-start"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Volver al mapa de asientos
+          </button>
+
+          <div className="grid md:grid-cols-[1fr_400px] gap-8">
+            <CheckoutForms
+              passengers={passengers}
+              buyer={buyer}
+              onChangePassenger={handleChangePassenger}
+              onChangeBuyer={setBuyer}
+            />
+
+            <aside className="flex flex-col gap-6">
+              <SummaryCard
+                trip={trip}
+                selectedSeats={selectedSeats}
+                total={total}
+                date={date}
+              />
+              <PaymentPanel
+                paymentMethod={paymentMethod}
+                onSelectPayment={setPaymentMethod}
+                acceptedTerms={acceptedTerms}
+                onToggleTerms={setAcceptedTerms}
+                total={total}
+                onPay={handlePay}
+              />
+            </aside>
+          </div>
+        </div>
+      </div>
+
+      <div className="block md:hidden pb-40">
+        <header className="bg-blue-600 text-white p-5 flex items-center gap-4">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Volver al mapa de asientos"
+            className="p-1 -ml-1 rounded-full hover:bg-white/10 transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <h1 className="flex-1 text-lg font-semibold leading-tight">
+            Confirma y paga
+          </h1>
+        </header>
+
+        <div className="px-4 -mt-6">
+          <SummaryCard
+            trip={trip}
+            selectedSeats={selectedSeats}
+            total={total}
+            date={date}
+          />
+        </div>
+
+        <main className="flex flex-col gap-4 p-4">
+          <article className="bg-white rounded-2xl shadow-card p-5 flex flex-col gap-6">
+            <h2 className="text-base font-bold text-neutral-900">
+              Datos de los pasajeros
+            </h2>
+            <div className="flex flex-col gap-6">
+              {passengers.map((pax, i) => (
+                <div
+                  key={`${pax.seat}-${i}`}
+                  className={
+                    i > 0
+                      ? 'pt-6 border-t border-neutral-200 flex flex-col gap-4'
+                      : 'flex flex-col gap-4'
+                  }
+                >
+                  <PassengerBlock
+                    index={i}
+                    passenger={pax}
+                    onChange={handleChangePassenger}
+                  />
+                </div>
+              ))}
+            </div>
+          </article>
+
+          <article className="bg-white rounded-2xl shadow-card p-5 flex flex-col gap-6">
+            <BuyerBlock buyer={buyer} onChange={setBuyer} />
+          </article>
+
+          <article className="bg-white rounded-2xl shadow-card p-5 flex flex-col gap-4">
+            <h2 className="text-base font-bold text-neutral-900">
+              Métodos de pago
+            </h2>
+            <div className="flex flex-col gap-3">
+              {PAYMENT_METHODS.map((option) => (
+                <PaymentOption
+                  key={option.id}
+                  option={option}
+                  selected={paymentMethod === option.id}
+                  onSelect={setPaymentMethod}
+                />
+              ))}
+            </div>
+            <div className="pt-2">
+              <TermsCheckbox
+                id="terms-mobile"
+                checked={acceptedTerms}
+                onChange={setAcceptedTerms}
+              />
+            </div>
+          </article>
+        </main>
+
+        <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-neutral-200 px-4 py-3 z-40 shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col">
+              <span className="text-xs text-neutral-600">Total a pagar</span>
+              <span className="text-lg font-bold text-neutral-900">
+                S/ {total.toFixed(2)}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handlePay}
+              disabled={!acceptedTerms}
+              className={`flex-1 py-3 rounded-xl font-medium transition-colors ${
+                acceptedTerms
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
+              }`}
+            >
+              Pagar S/ {total.toFixed(2)}
+            </button>
+          </div>
+        </div>
+
+        <BottomNav active="search" />
+      </div>
+    </div>
+  )
+}

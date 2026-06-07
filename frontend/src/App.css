@@ -1,0 +1,6 @@
+/* Reset for the BUSTOKE app — Tailwind v4 utilities cover all styling. */
+html,
+body,
+#root {
+  height: 100%;
+}
