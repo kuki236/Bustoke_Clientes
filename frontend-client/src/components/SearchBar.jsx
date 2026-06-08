@@ -1,8 +1,10 @@
+import Autocomplete from './Autocomplete'
+import PassengerStepper from './PassengerStepper'
 import SearchField from './SearchField'
 
-export default function SearchBar({ values, onChange, onSearch }) {
-  const handleSubmit = (e) => {
-    e.preventDefault()
+export default function SearchBar({ values, onChange, onSearch, isSearching = false }) {
+  const handleSubmit = (event) => {
+    event.preventDefault()
     onSearch?.()
   }
 
@@ -11,18 +13,20 @@ export default function SearchBar({ values, onChange, onSearch }) {
       onSubmit={handleSubmit}
       className="bg-white rounded-2xl shadow-card p-4 lg:p-5 flex flex-row items-center gap-4 lg:gap-6 w-full max-w-6xl mx-auto"
     >
-      <SearchField
+      <Autocomplete
         label="Origen"
         value={values.origin}
+        excludeId={values.destination}
         placeholder="Ciudad de salida"
-        onChange={(v) => onChange('origin', v)}
+        onChange={(id) => onChange('origin', id)}
       />
       <div className="hidden lg:block w-px h-10 bg-neutral-200" />
-      <SearchField
+      <Autocomplete
         label="Destino"
         value={values.destination}
+        excludeId={values.origin}
         placeholder="Ciudad de destino"
-        onChange={(v) => onChange('destination', v)}
+        onChange={(id) => onChange('destination', id)}
       />
       <div className="hidden lg:block w-px h-10 bg-neutral-200" />
       <SearchField
@@ -33,18 +37,21 @@ export default function SearchBar({ values, onChange, onSearch }) {
         onChange={(v) => onChange('date', v)}
       />
       <div className="hidden lg:block w-px h-10 bg-neutral-200" />
-      <SearchField
+      <PassengerStepper
         label="Pasajeros"
-        type="number"
         value={values.passengers}
-        options={['1', '2', '3', '4', '5+']}
         onChange={(v) => onChange('passengers', v)}
       />
       <button
         type="submit"
-        className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl transition-colors shrink-0"
+        disabled={isSearching}
+        className={`font-semibold px-6 py-3 rounded-xl transition-colors shrink-0 ${
+          isSearching
+            ? 'bg-blue-600/70 text-white cursor-wait'
+            : 'bg-blue-600 hover:bg-blue-700 text-white'
+        }`}
       >
-        Buscar Buses
+        {isSearching ? 'Buscando…' : 'Buscar Buses'}
       </button>
     </form>
   )

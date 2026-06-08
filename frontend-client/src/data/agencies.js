@@ -24,3 +24,31 @@ export const AGENCIES = [
     nombre: 'Movil Bus',
   },
 ]
+
+export const SEAT_TYPES = ['VIP', 'Normal']
+
+export const SHIFTS = ['Mañana', 'Tarde', 'Noche']
+
+export const PRICE_RANGE = { min: 45, max: 200 }
+
+export const TIPO_SERVICIO_TO_BACKEND = {
+  VIP: 'vip',
+  Normal: 'normal',
+}
+
+export const TIPO_SERVICIO_FROM_BACKEND = {
+  vip: 'VIP',
+  normal: 'Normal',
+}
+
+export const TURNO_TO_BACKEND = {
+  Mañana: 'manana',
+  Tarde: 'tarde',
+  Noche: 'noche',
+}
+
+export const TURNO_FROM_BACKEND = {
+  manana: 'Mañana',
+  tarde: 'Tarde',
+  noche: 'Noche',
+}

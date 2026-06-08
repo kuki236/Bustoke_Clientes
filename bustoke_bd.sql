@@ -547,14 +547,15 @@ BEGIN
                         -- Formato exacto exigido por tu UI e índice: 'A4-1' (Fila A, Asiento 4, Piso 1)
                         v_asiento_codigo := v_fila || v_asiento_num || '-' || v_piso;
                         
-                        -- Generación de coordenadas proporcionales para el grid dinámico en Figma/Web
-                        -- La columna 3 y 4 se desfasan horizontalmente (+15 unidades) para simular físicamente el pasadizo central
+                        -- FIX EJE X: Eje porcentual balanceado (20% | 40% || PASADIZO || 65% | 85%)
                         IF c <= 2 THEN
                             v_x := c * 20;
                         ELSE
-                            v_x := (c * 20) + 15; 
+                            v_x := (c * 20) + 5; 
                         END IF;
-                        v_y := f * 30; -- Profundidad del bus hacia atrás
+
+                        -- FIX EJE Y: Mapeo de filas A-J dentro del lienzo porcentual estricto (10% a 91%)
+                        v_y := 10 + ((f - 1) * 9); 
 
                         -- Inserción de la celda de asiento física
                         INSERT INTO asientos (id_bus, numero_asiento, fila, piso, tipo_servicio, coord_x, coord_y, bloqueado_manual)

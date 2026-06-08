@@ -9,6 +9,7 @@ import {
 import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import Navbar from './Navbar'
+import Alert from './Alert'
 
 const HERO_IMAGES = [
   'https://images.unsplash.com/photo-1526392060635-9d6019884377?auto=format&fit=crop&w=1600&q=80',
@@ -169,7 +170,8 @@ function FormField({ id, name, label, type = 'text', placeholder, value, onChang
   )
 }
 
-function RegisterForm({ onRegister, onChangeMode, onBack, isDesktop = false }) {
+function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
+  const { registerUser, isAuthenticated } = useAuth()
   const [form, setForm] = useState({
     nombres: '',
     apellido_paterno: '',
@@ -177,6 +179,7 @@ function RegisterForm({ onRegister, onChangeMode, onBack, isDesktop = false }) {
     numero_documento: '',
     correo: '',
     contrasena: '',
+    telefono: '',
   })
   const [acceptTerms, setAcceptTerms] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -187,7 +190,7 @@ function RegisterForm({ onRegister, onChangeMode, onBack, isDesktop = false }) {
     setForm((prev) => ({ ...prev, [field]: e.target.value }))
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     const required = [
@@ -205,22 +208,63 @@ function RegisterForm({ onRegister, onChangeMode, onBack, isDesktop = false }) {
       setError(`Completa los campos: ${missing.join(', ')}.`)
       return
     }
+    if (form.contrasena.length < 8) {
+      setError('La contraseña debe tener al menos 8 caracteres.')
+      return
+    }
     if (!acceptTerms) {
       setError('Debes aceptar los términos y condiciones.')
       return
     }
     setSubmitting(true)
-    setTimeout(() => {
-      setSubmitting(false)
-      onRegister({
-        email: form.correo,
-        names: form.nombres,
-        paternalSurname: form.apellido_paterno,
-        maternalSurname: form.apellido_materno,
-        docType: 'DNI',
-        docNumber: form.numero_documento,
+    try {
+      await registerUser({
+        nombres: form.nombres.trim(),
+        apellido_paterno: form.apellido_paterno.trim(),
+        apellido_materno: form.apellido_materno.trim(),
+        tipo_documento: 'DNI',
+        numero_documento: form.numero_documento.trim(),
+        email: form.correo.trim(),
+        password: form.contrasena,
+        telefono: form.telefono.trim(),
       })
-    }, 500)
+    } catch (err) {
+      const status = err?.status
+      if (status === 409) {
+        setError('El correo ya está registrado. Intenta iniciar sesión.')
+      } else if (status === 400) {
+        setError(err?.message || 'Revisa los datos ingresados. Algún campo no es válido.')
+      } else if (status === 422) {
+        setError(
+          err?.message ||
+            'Algunos campos no cumplen con el formato esperado (correo válido y contraseña de mínimo 8 caracteres).',
+        )
+      } else if (status >= 500) {
+        setError('El servidor tuvo un problema. Intenta nuevamente en unos minutos.')
+      } else {
+        setError(err?.message || 'No se pudo crear la cuenta. Intenta nuevamente.')
+      }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (isAuthenticated) {
+    return (
+      <div className="flex flex-col items-center gap-4 text-center py-8">
+        <Alert variant="success" className="w-full">
+          <p className="font-medium">¡Cuenta creada con éxito!</p>
+          <p className="text-xs mt-1">Ya puedes buscar tus pasajes.</p>
+        </Alert>
+        <button
+          type="button"
+          onClick={onBack}
+          className="bg-blue-600 text-white font-medium rounded-xl px-6 py-3 hover:bg-blue-700 transition-colors"
+        >
+          Empezar a buscar
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -279,6 +323,17 @@ function RegisterForm({ onRegister, onChangeMode, onBack, isDesktop = false }) {
         onChange={update('correo')}
       />
       <FormField
+        id="telefono"
+        name="telefono"
+        type="tel"
+        label="Teléfono (opcional)"
+        placeholder="Ej. 987654321"
+        autoComplete="tel"
+        inputMode="tel"
+        value={form.telefono}
+        onChange={update('telefono')}
+      />
+      <FormField
         id="contrasena"
         name="contrasena"
         type={showPassword ? 'text' : 'password'}
@@ -335,11 +390,7 @@ function RegisterForm({ onRegister, onChangeMode, onBack, isDesktop = false }) {
         </span>
       </label>
 
-      {error && (
-        <p className="text-sm text-red-600" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <Alert variant="error">{error}</Alert>}
 
       <button
         type="submit"
@@ -370,12 +421,6 @@ function RegisterForm({ onRegister, onChangeMode, onBack, isDesktop = false }) {
 }
 
 export default function RegisterPage({ onChangeMode, onBack }) {
-  const { login } = useAuth()
-
-  const handleRegister = (data) => {
-    login(data)
-  }
-
   return (
     <div className="min-h-screen bg-white md:grid md:grid-cols-2">
       <AuthHeroPanel />
@@ -401,7 +446,6 @@ export default function RegisterPage({ onChangeMode, onBack }) {
               </p>
             </header>
             <RegisterForm
-              onRegister={handleRegister}
               onChangeMode={onChangeMode}
               onBack={onBack}
               isDesktop
@@ -420,11 +464,7 @@ export default function RegisterPage({ onChangeMode, onBack }) {
                 Regístrate para comprar pasajes y gestionar tus viajes.
               </p>
             </header>
-            <RegisterForm
-              onRegister={handleRegister}
-              onChangeMode={onChangeMode}
-              onBack={onBack}
-            />
+            <RegisterForm onChangeMode={onChangeMode} onBack={onBack} />
           </div>
         </div>
       </section>

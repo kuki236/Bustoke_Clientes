@@ -1,36 +1,104 @@
-import { createContext, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import {
+  clearAccessToken,
+  setAccessToken,
+  getAccessToken,
+} from '../api/axiosInstance'
+import {
+  fetchMeRequest,
+  loginRequest,
+  registerRequest,
+} from '../api/auth'
 
 const AuthContext = createContext(null)
 
 const INITIAL_USER = null
 
 export function AuthProvider({ children }) {
+  const hasInitialToken = Boolean(getAccessToken())
   const [user, setUser] = useState(INITIAL_USER)
+  const [loading, setLoading] = useState(hasInitialToken)
+  const [error, setError] = useState(null)
 
-  const login = (userData) => {
-    setUser({
-      email: userData?.email ?? '',
-      names: userData?.names ?? '',
-      paternalSurname: userData?.paternalSurname ?? '',
-      maternalSurname: userData?.maternalSurname ?? '',
-      docType: userData?.docType ?? 'DNI',
-      docNumber: userData?.docNumber ?? '',
-      accountType: 'Pasajero B2C',
-    })
-  }
+  useEffect(() => {
+    if (!hasInitialToken) return undefined
+    let cancelled = false
+    fetchMeRequest()
+      .then((hydratedUser) => {
+        if (cancelled) return
+        setUser(hydratedUser)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        clearAccessToken()
+        setUser(INITIAL_USER)
+        if (err?.status !== 401) {
+          setError(err?.message || 'No se pudo rehidratar la sesión.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
 
-  const logout = () => {
+    return () => {
+      cancelled = true
+    }
+  }, [hasInitialToken])
+
+  const loginUser = useCallback(async (email, password) => {
+    setError(null)
+    try {
+      const { token, user: fetchedUser } = await loginRequest({ email, password })
+      if (token) setAccessToken(token)
+      setUser(fetchedUser)
+      return fetchedUser
+    } catch (err) {
+      setError(err?.message || 'No se pudo iniciar sesión.')
+      throw err
+    }
+  }, [])
+
+  const registerUser = useCallback(async (formData) => {
+    setError(null)
+    try {
+      const { token, user: registeredUser } = await registerRequest({
+        email: formData.email ?? formData.correo,
+        password: formData.password ?? formData.contrasena,
+        telefono: formData.telefono,
+      })
+      if (token) {
+        setAccessToken(token)
+        setUser(registeredUser)
+      }
+      return { token, user: registeredUser }
+    } catch (err) {
+      setError(err?.message || 'No se pudo completar el registro.')
+      throw err
+    }
+  }, [])
+
+  const logout = useCallback(() => {
+    clearAccessToken()
     setUser(INITIAL_USER)
-  }
+    setError(null)
+  }, [])
+
+  const updateUser = useCallback((partial) => {
+    setUser((prev) => (prev ? { ...prev, ...partial } : prev))
+  }, [])
 
   const value = useMemo(
     () => ({
       user,
+      loading,
+      error,
       isAuthenticated: Boolean(user),
-      login,
+      loginUser,
+      registerUser,
       logout,
+      updateUser,
     }),
-    [user],
+    [user, loading, error, loginUser, registerUser, logout, updateUser],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

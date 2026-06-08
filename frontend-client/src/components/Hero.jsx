@@ -6,12 +6,12 @@ const HERO_BG =
 export default function Hero({ values, onChange, onSearch }) {
   return (
     <section
-      className="hidden md:flex relative w-full min-h-[calc(100vh-64px)] bg-cover bg-center bg-no-repeat flex-col justify-between items-center pb-16"
+      className="hidden md:flex relative w-full min-h-[calc(100vh-64px)] bg-cover bg-center bg-no-repeat flex-col items-center px-6 pt-20 pb-72"
       style={{
         backgroundImage: `linear-gradient(rgba(0,0,0,0.25), rgba(0,0,0,0.45)), url('${HERO_BG}')`,
       }}
     >
-      <div className="text-center text-white px-6 pt-16">
+      <div className="text-center text-white max-w-2xl mb-8">
         <h1 className="text-5xl font-medium tracking-tight">
           Tu viaje comienza aquí.
         </h1>
@@ -20,7 +20,7 @@ export default function Hero({ values, onChange, onSearch }) {
         </p>
       </div>
 
-      <div className="w-full px-6">
+      <div className="w-full max-w-6xl">
         <SearchBar values={values} onChange={onChange} onSearch={onSearch} />
       </div>
     </section>

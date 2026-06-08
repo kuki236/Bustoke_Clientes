@@ -1,11 +1,27 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { ArrowLeft, CreditCard, Smartphone } from 'lucide-react'
 import Navbar from './Navbar'
 import BottomNav from './BottomNav'
+import Alert from './Alert'
+import { processBookingRequest } from '../api/bookings'
 
 const DOC_TYPES = ['DNI', 'CE', 'Pasaporte']
 const DEFAULT_DOC_TYPE = 'DNI'
 const DEFAULT_DATE = '15/06/2026'
+const SEAT_SESSION_TOKEN_KEY = 'bustoke_seat_session_token'
+const CHECKOUT_SEATS_STORAGE_KEY = 'bustoke_checkout_seats_full'
+
+const DOC_TYPE_TO_ID = {
+  DNI: 1,
+  Pasaporte: 2,
+  CE: 3,
+}
+
+const PAYMENT_METHOD_TO_BACKEND = {
+  card: 'tarjeta',
+  yape: 'yape',
+}
 
 const PAYMENT_METHODS = [
   {
@@ -40,6 +56,7 @@ function getEmptyPassenger(seat) {
     names: '',
     paternalSurname: '',
     maternalSurname: '',
+    fechaNacimiento: '',
   }
 }
 
@@ -52,6 +69,105 @@ function getEmptyBuyer() {
     maternalSurname: '',
     email: '',
   }
+}
+
+function readSessionToken() {
+  try {
+    return sessionStorage.getItem(SEAT_SESSION_TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+function clearSessionToken() {
+  try {
+    sessionStorage.removeItem(SEAT_SESSION_TOKEN_KEY)
+  } catch {
+    // ignore (modo privado, sin storage, etc.)
+  }
+}
+
+function readCheckoutSeatsFromStorage() {
+  try {
+    const raw = sessionStorage.getItem(CHECKOUT_SEATS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function clearCheckoutSeatsStorage() {
+  try {
+    sessionStorage.removeItem(CHECKOUT_SEATS_STORAGE_KEY)
+  } catch {
+    // ignore (modo privado, sin storage, etc.)
+  }
+}
+
+function buildSeatIdMap(selectedSeatsFull) {
+  const map = new Map()
+  for (const seat of selectedSeatsFull || []) {
+    if (seat?.numero_asiento != null && seat?.id_asiento != null) {
+      map.set(String(seat.numero_asiento), Number(seat.id_asiento))
+    }
+  }
+  return map
+}
+
+function buildBookingPayload({
+  idViaje,
+  tokenSesion,
+  buyer,
+  passengers,
+  seatIdMap,
+  paymentMethod,
+}) {
+  const metodoPago = PAYMENT_METHOD_TO_BACKEND[paymentMethod] || 'tarjeta'
+  return {
+    token_sesion: tokenSesion,
+    id_viaje: idViaje,
+    comprador: {
+      tipo_documento: buyer.docType,
+      numero_documento: String(buyer.docNumber || '').trim(),
+      nombres: String(buyer.names || '').trim(),
+      apellidos:
+        `${String(buyer.paternalSurname || '').trim()} ${String(
+          buyer.maternalSurname || '',
+        ).trim()}`.trim(),
+      email: buyer.email,
+    },
+    pasajeros: passengers.map((pax) => ({
+      id_asiento: seatIdMap.get(pax.seat),
+      id_tipo_documento: DOC_TYPE_TO_ID[pax.docType] || 1,
+      numero_documento: String(pax.docNumber || '').trim(),
+      nombres: String(pax.names || '').trim(),
+      apellido_paterno: String(pax.paternalSurname || '').trim(),
+      apellido_materno: String(pax.maternalSurname || '').trim(),
+      fecha_nacimiento: pax.fechaNacimiento,
+    })),
+    metodo_pago: metodoPago,
+  }
+}
+
+function validateCheckoutForm({ buyer, passengers }) {
+  const errors = []
+  if (!buyer.docNumber?.trim()) errors.push('Número de documento del comprador')
+  if (!buyer.names?.trim()) errors.push('Nombres del comprador')
+  if (!buyer.paternalSurname?.trim()) errors.push('Apellido paterno del comprador')
+  if (!buyer.email?.trim()) errors.push('Correo del comprador')
+
+  passengers.forEach((pax, i) => {
+    const label = `Pasajero ${i + 1} (asiento ${pax.seat})`
+    if (!pax.docNumber?.trim()) errors.push(`${label}: número de documento`)
+    if (!pax.names?.trim()) errors.push(`${label}: nombres`)
+    if (!pax.paternalSurname?.trim()) errors.push(`${label}: apellido paterno`)
+    if (!pax.maternalSurname?.trim()) errors.push(`${label}: apellido materno`)
+    if (!pax.fechaNacimiento?.trim()) errors.push(`${label}: fecha de nacimiento`)
+  })
+
+  return errors
 }
 
 function SelectField({ label, value, onChange, options, id }) {
@@ -164,6 +280,14 @@ function PassengerBlock({ index, passenger, onChange }) {
           placeholder="Apellido materno"
         />
       </div>
+      <InputField
+        id={`pax-${index}-birth`}
+        label="Fecha de Nacimiento"
+        type="date"
+        value={passenger.fechaNacimiento}
+        onChange={(v) => update('fechaNacimiento', v)}
+        max="2010-12-31"
+      />
     </section>
   )
 }
@@ -423,6 +547,7 @@ function PaymentPanel({
   total,
   onPay,
   isProcessing = false,
+  payError = null,
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -446,6 +571,7 @@ function PaymentPanel({
           checked={acceptedTerms}
           onChange={onToggleTerms}
         />
+        {payError && <Alert variant="error">{payError}</Alert>}
         <button
           type="button"
           onClick={onPay}
@@ -456,7 +582,9 @@ function PaymentPanel({
               : 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
           }`}
         >
-          {isProcessing ? 'Procesando pago…' : `Pagar S/ ${total.toFixed(2)}`}
+          {isProcessing
+            ? 'Procesando pago seguro...'
+            : `Pagar S/ ${total.toFixed(2)}`}
         </button>
       </div>
     </div>
@@ -464,14 +592,77 @@ function PaymentPanel({
 }
 
 export default function CheckoutPage({
-  trip,
-  selectedSeats,
-  total,
-  date,
+  trip: tripProp,
+  selectedSeats: selectedSeatsProp,
+  selectedSeatsFull: selectedSeatsFullProp = [],
+  total: totalProp,
+  date: dateProp,
+  idViaje: idViajeProp,
   onBack,
   onPaymentSuccess,
   onNavigate,
 }) {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const stateData = location.state || {}
+
+  const trip = stateData.trip ?? tripProp ?? null
+  const selectedSeats = Array.isArray(stateData.selectedSeats)
+    ? stateData.selectedSeats
+    : Array.isArray(selectedSeatsProp)
+      ? selectedSeatsProp
+      : []
+
+  const selectedSeatsFullFromState = Array.isArray(stateData.selectedSeatsFull)
+    ? stateData.selectedSeatsFull
+    : []
+  const selectedSeatsFullFromProps = Array.isArray(selectedSeatsFullProp)
+    ? selectedSeatsFullProp
+    : []
+
+  let selectedSeatsFull = selectedSeatsFullFromState.length
+    ? selectedSeatsFullFromState
+    : selectedSeatsFullFromProps
+
+  if (selectedSeatsFull.length === 0) {
+    const fallbackSeats = readCheckoutSeatsFromStorage()
+    if (fallbackSeats.length > 0) {
+      console.warn(
+        '[Checkout] selectedSeatsFull no vino en location.state; ' +
+          'recuperando respaldo desde sessionStorage.',
+        { key: CHECKOUT_SEATS_STORAGE_KEY, count: fallbackSeats.length },
+      )
+      selectedSeatsFull = fallbackSeats
+    }
+  }
+
+  const total =
+    Number(stateData.total ?? totalProp) || 0
+  const date = stateData.date ?? dateProp ?? ''
+  const idViaje =
+    stateData.idViaje ?? idViajeProp ?? (trip?.id ? Number(trip.id) : null)
+
+  const seatIdMap = useMemo(
+    () => buildSeatIdMap(selectedSeatsFull),
+    [selectedSeatsFull],
+  )
+  console.log('[Checkout] seatIdMap', {
+    size: seatIdMap.size,
+    map: Array.from(seatIdMap.entries()),
+    selectedSeatsFull,
+  })
+
+  useEffect(() => {
+    if (selectedSeats.length === 0 || selectedSeatsFull.length === 0) {
+      console.error(
+        '[Checkout] Estado de router inválido: no hay asientos seleccionados.',
+        { selectedSeats, selectedSeatsFull },
+      )
+      navigate('/', { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const [passengers, setPassengers] = useState(() =>
     selectedSeats.map((s) => getEmptyPassenger(formatSeat(s))),
   )
@@ -479,22 +670,160 @@ export default function CheckoutPage({
   const [paymentMethod, setPaymentMethod] = useState('card')
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [payError, setPayError] = useState(null)
+
+  const handleBack = useCallback(() => {
+    if (typeof onBack === 'function') {
+      onBack()
+      return
+    }
+    if (idViaje) {
+      navigate(`/viaje/${idViaje}/asientos`)
+    } else {
+      navigate(-1)
+    }
+  }, [onBack, idViaje, navigate])
 
   const handleChangePassenger = (index, updated) => {
     setPassengers((prev) => prev.map((p, i) => (i === index ? updated : p)))
   }
 
-  const handlePay = () => {
-    if (!acceptedTerms || isProcessing) return
+  const handlePay = async () => {
+    const collectedSnapshot = {
+      passengers,
+      buyer,
+      paymentMethod,
+      selectedSeats,
+      selectedSeatsFull,
+      isProcessing,
+      acceptedTerms,
+    }
+    console.log('[Checkout] handlePay disparado', collectedSnapshot)
+
+    const tokenSesion = readSessionToken()
+    console.log('[Checkout] token_sesion recuperado de sessionStorage', {
+      key: SEAT_SESSION_TOKEN_KEY,
+      present: Boolean(tokenSesion),
+      tokenSesion,
+    })
+
+    if (isProcessing) {
+      console.warn('[Checkout] handlePay ignorado: ya hay un pago en proceso')
+      return
+    }
+
+    if (!acceptedTerms) {
+      console.error(
+        '[Checkout] handlePay bloqueado: el usuario no aceptó los términos',
+      )
+      setPayError('Debes aceptar los términos y condiciones.')
+      return
+    }
+
+    if (!tokenSesion) {
+      console.error(
+        '[Checkout] handlePay bloqueado: token_sesion es undefined. ' +
+          `Verifica que sessionStorage tenga la clave "${SEAT_SESSION_TOKEN_KEY}".`,
+      )
+      setPayError(
+        'Tu sesión de bloqueo expiró. Vuelve al mapa de asientos y reintenta.',
+      )
+      return
+    }
+
+    const validationErrors = validateCheckoutForm({ buyer, passengers })
+    if (validationErrors.length > 0) {
+      console.error(
+        '[Checkout] Validación de formulario incompleta',
+        { buyer, passengers, validationErrors },
+      )
+      setPayError(
+        `Completa los campos obligatorios: ${validationErrors.join(', ')}.`,
+      )
+      return
+    }
+
+    const missingSeats = passengers.filter(
+      (pax) => !seatIdMap.has(pax.seat),
+    )
+    if (missingSeats.length > 0) {
+      console.error(
+        '[Checkout] No se pudo mapear id_asiento para los pasajeros',
+        {
+          passengersSeats: passengers.map((p) => p.seat),
+          missingSeats: missingSeats.map((p) => p.seat),
+          seatIdMap: Array.from(seatIdMap.entries()),
+          selectedSeatsFull,
+        },
+      )
+      setPayError(
+        'No pudimos mapear los asientos con la reserva. Vuelve al mapa de asientos.',
+      )
+      return
+    }
+
+    const resolvedIdViaje =
+      idViaje ?? (trip?.id ? Number(trip.id) : null)
+    if (!resolvedIdViaje) {
+      console.error('[Checkout] idViaje no resuelto', { idViaje, trip })
+      setPayError('No se pudo identificar el viaje. Vuelve a los resultados.')
+      return
+    }
+
+    const payload = buildBookingPayload({
+      idViaje: resolvedIdViaje,
+      tokenSesion,
+      buyer,
+      passengers,
+      seatIdMap,
+      paymentMethod,
+    })
+
+    console.log(
+      '[Checkout] POST http://localhost:8000/v1/bookings/process',
+      payload,
+    )
+
     setIsProcessing(true)
-    setTimeout(() => {
-      setIsProcessing(false)
-      onPaymentSuccess?.({
-        passengers,
-        buyer,
-        paymentMethod,
+    setPayError(null)
+    try {
+      const result = await processBookingRequest(payload)
+      console.log(
+        '[Checkout] Respuesta 201 de /v1/bookings/process',
+        result,
+      )
+
+      clearSessionToken()
+      clearCheckoutSeatsStorage()
+      setPassengers([])
+      setBuyer(getEmptyBuyer())
+      setAcceptedTerms(false)
+      onPaymentSuccess?.({ passengers, buyer, paymentMethod })
+
+      navigate('/checkout/success', {
+        state: {
+          bookingResult: result,
+          trip,
+          date,
+          paymentMethod,
+        },
       })
-    }, 600)
+    } catch (err) {
+      console.error(
+        '[Checkout] Error en POST /v1/bookings/process',
+        {
+          message: err?.message,
+          status: err?.status,
+          err,
+        },
+      )
+      setPayError(
+        err?.message ||
+          'No pudimos procesar el pago. Intenta nuevamente en unos minutos.',
+      )
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
   return (
@@ -504,7 +833,7 @@ export default function CheckoutPage({
         <div className="max-w-7xl mx-auto p-8 flex flex-col gap-6">
           <button
             type="button"
-            onClick={onBack}
+            onClick={handleBack}
             className="flex items-center gap-2 text-sm font-medium text-neutral-600 hover:text-blue-600 transition-colors self-start"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -534,6 +863,7 @@ export default function CheckoutPage({
                 total={total}
                 onPay={handlePay}
                 isProcessing={isProcessing}
+                payError={payError}
               />
             </aside>
           </div>
@@ -544,7 +874,7 @@ export default function CheckoutPage({
         <header className="bg-blue-600 text-white p-5 flex items-center gap-4">
           <button
             type="button"
-            onClick={onBack}
+            onClick={handleBack}
             aria-label="Volver al mapa de asientos"
             className="p-1 -ml-1 rounded-full hover:bg-white/10 transition-colors"
           >
@@ -614,6 +944,7 @@ export default function CheckoutPage({
                 onChange={setAcceptedTerms}
               />
             </div>
+            {payError && <Alert variant="error">{payError}</Alert>}
           </article>
         </main>
 
@@ -635,7 +966,9 @@ export default function CheckoutPage({
                   : 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
               }`}
             >
-              {isProcessing ? 'Procesando pago…' : `Pagar S/ ${total.toFixed(2)}`}
+              {isProcessing
+                ? 'Procesando pago seguro...'
+                : `Pagar S/ ${total.toFixed(2)}`}
             </button>
           </div>
         </div>

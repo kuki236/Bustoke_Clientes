@@ -9,6 +9,7 @@ import {
 import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import Navbar from './Navbar'
+import Alert from './Alert'
 
 const HERO_IMAGES = [
   'https://images.unsplash.com/photo-1526392060635-9d6019884377?auto=format&fit=crop&w=1600&q=80',
@@ -136,7 +137,8 @@ function AuthToggleLink({ mode, onChangeMode }) {
   )
 }
 
-function LoginForm({ onLogin, onChangeMode, onBack, isDesktop = false }) {
+function LoginForm({ onChangeMode, onBack, isDesktop = false }) {
+  const { loginUser } = useAuth()
   const [correo, setCorreo] = useState('')
   const [contrasena, setContrasena] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -144,7 +146,7 @@ function LoginForm({ onLogin, onChangeMode, onBack, isDesktop = false }) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     if (!correo || !contrasena) {
@@ -152,26 +154,31 @@ function LoginForm({ onLogin, onChangeMode, onBack, isDesktop = false }) {
       return
     }
     setSubmitting(true)
-    setTimeout(() => {
+    try {
+      await loginUser(correo, contrasena)
+      if (remember) {
+        try {
+          localStorage.setItem('bustoke_remember_email', correo)
+        } catch {
+          // ignore
+        }
+      }
+    } catch (err) {
+      const status = err?.status
+      if (status === 401) {
+        setError('Correo o contraseña incorrectos. Verifica e inténtalo de nuevo.')
+      } else if (status === 403) {
+        setError('Tu cuenta no tiene permisos para iniciar sesión.')
+      } else if (status === 429) {
+        setError('Demasiados intentos. Espera unos minutos antes de volver a intentarlo.')
+      } else if (status >= 500) {
+        setError('El servidor tuvo un problema. Intenta nuevamente en unos minutos.')
+      } else {
+        setError(err?.message || 'No se pudo iniciar sesión. Intenta nuevamente.')
+      }
+    } finally {
       setSubmitting(false)
-      const localPart = correo.split('@')[0] || 'Pasajero'
-      const guessed = localPart
-        .replace(/[^a-zA-ZáéíóúñÁÉÍÓÚÑ\s]/g, ' ')
-        .trim()
-      const parts = guessed.split(/\s+/).filter(Boolean)
-      const names = parts[0]
-        ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
-        : 'Pasajero'
-      const paternal = parts[1]
-        ? parts[1].charAt(0).toUpperCase() + parts[1].slice(1)
-        : ''
-      onLogin({
-        email: correo,
-        names,
-        paternalSurname: paternal,
-        maternalSurname: '',
-      })
-    }, 400)
+    }
   }
 
   return (
@@ -263,11 +270,7 @@ function LoginForm({ onLogin, onChangeMode, onBack, isDesktop = false }) {
         </button>
       </div>
 
-      {error && (
-        <p className="text-sm text-red-600" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <Alert variant="error">{error}</Alert>}
 
       <button
         type="submit"
@@ -298,10 +301,6 @@ function LoginForm({ onLogin, onChangeMode, onBack, isDesktop = false }) {
 }
 
 function LoginPageContent({ onChangeMode, onBack }) {
-  const { login } = useAuth()
-  const handleLogin = (data) => {
-    login(data)
-  }
   return (
     <div className="min-h-screen bg-white md:grid md:grid-cols-2">
       <AuthHeroPanel />
@@ -327,7 +326,6 @@ function LoginPageContent({ onChangeMode, onBack }) {
               </p>
             </header>
             <LoginForm
-              onLogin={handleLogin}
               onChangeMode={onChangeMode}
               onBack={onBack}
               isDesktop
@@ -346,11 +344,7 @@ function LoginPageContent({ onChangeMode, onBack }) {
                 Bienvenida de nuevo, por favor ingrese sus datos.
               </p>
             </header>
-            <LoginForm
-              onLogin={handleLogin}
-              onChangeMode={onChangeMode}
-              onBack={onBack}
-            />
+            <LoginForm onChangeMode={onChangeMode} onBack={onBack} />
           </div>
         </div>
       </section>

@@ -1,12 +1,15 @@
-import { ChevronDown, Calendar } from 'lucide-react'
+import { Calendar } from 'lucide-react'
+import { formatDateToDDMMYYYY } from '../api/travels'
 
 export default function SearchField({
   label,
   value,
   placeholder,
-  type = 'select',
+  type = 'text',
   options = [],
   onChange,
+  min,
+  max,
 }) {
   const wrapperClasses = 'flex flex-col gap-1 min-w-0 flex-1'
 
@@ -14,38 +17,46 @@ export default function SearchField({
     return (
       <div className={wrapperClasses}>
         <label className="text-xs font-medium text-neutral-500">{label}</label>
-        <div className="flex items-center justify-between gap-2">
+        <div className="relative flex items-center gap-2 min-w-0">
           <input
-            type="text"
-            value={value}
-            placeholder={placeholder}
-            onChange={(e) => onChange?.(e.target.value)}
-            className="bg-transparent outline-none text-neutral-900 font-medium w-full placeholder:text-neutral-400"
+            type="date"
+            value={value || ''}
+            min={min}
+            max={max}
+            onChange={(event) => onChange?.(event.target.value)}
+            aria-label={label}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
           />
-          <Calendar className="w-4 h-4 text-neutral-500 shrink-0" />
+          <span
+            className={`font-medium truncate ${
+              value ? 'text-neutral-900' : 'text-neutral-400'
+            }`}
+          >
+            {value
+              ? formatDateToDDMMYYYY(value)
+              : placeholder || 'DD/MM/AAAA'}
+          </span>
+          <Calendar className="w-4 h-4 text-neutral-500 shrink-0 ml-auto" />
         </div>
       </div>
     )
   }
 
-  if (type === 'number') {
+  if (type === 'select') {
     return (
       <div className={wrapperClasses}>
         <label className="text-xs font-medium text-neutral-500">{label}</label>
-        <div className="flex items-center justify-between gap-2">
-          <select
-            value={value}
-            onChange={(e) => onChange?.(e.target.value)}
-            className="bg-transparent outline-none text-neutral-900 font-medium w-full appearance-none cursor-pointer"
-          >
-            {options.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="w-4 h-4 text-neutral-500 shrink-0" />
-        </div>
+        <select
+          value={value}
+          onChange={(event) => onChange?.(event.target.value)}
+          className="bg-transparent outline-none text-neutral-900 font-medium w-full cursor-pointer"
+        >
+          {options.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
+          ))}
+        </select>
       </div>
     )
   }
@@ -53,15 +64,13 @@ export default function SearchField({
   return (
     <div className={wrapperClasses}>
       <label className="text-xs font-medium text-neutral-500">{label}</label>
-      <button
-        type="button"
-        className="flex items-center justify-between gap-2 text-left"
-      >
-        <span className="text-neutral-900 font-medium truncate">
-          {value || placeholder}
-        </span>
-        <ChevronDown className="w-4 h-4 text-neutral-500 shrink-0" />
-      </button>
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange?.(event.target.value)}
+        className="bg-transparent outline-none text-neutral-900 font-medium w-full placeholder:text-neutral-400"
+      />
     </div>
   )
 }

@@ -1,8 +1,10 @@
+import Autocomplete from './Autocomplete'
+import PassengerStepper from './PassengerStepper'
 import SearchField from './SearchField'
 
-export default function MobileSearchCard({ values, onChange, onSearch }) {
-  const handleSubmit = (e) => {
-    e.preventDefault()
+export default function MobileSearchCard({ values, onChange, onSearch, isSearching = false }) {
+  const handleSubmit = (event) => {
+    event.preventDefault()
     onSearch?.()
   }
 
@@ -11,17 +13,19 @@ export default function MobileSearchCard({ values, onChange, onSearch }) {
       onSubmit={handleSubmit}
       className="bg-white rounded-2xl shadow-card p-5 flex flex-col gap-4 w-full"
     >
-      <SearchField
+      <Autocomplete
         label="Origen"
         value={values.origin}
+        excludeId={values.destination}
         placeholder="Ciudad de salida"
-        onChange={(v) => onChange('origin', v)}
+        onChange={(id) => onChange('origin', id)}
       />
-      <SearchField
+      <Autocomplete
         label="Destino"
         value={values.destination}
+        excludeId={values.origin}
         placeholder="Ciudad de destino"
-        onChange={(v) => onChange('destination', v)}
+        onChange={(id) => onChange('destination', id)}
       />
       <SearchField
         label="Fecha de Salida"
@@ -30,18 +34,21 @@ export default function MobileSearchCard({ values, onChange, onSearch }) {
         placeholder="DD/MM/AAAA"
         onChange={(v) => onChange('date', v)}
       />
-      <SearchField
+      <PassengerStepper
         label="Pasajeros"
-        type="number"
         value={values.passengers}
-        options={['1', '2', '3', '4', '5+']}
         onChange={(v) => onChange('passengers', v)}
       />
       <button
         type="submit"
-        className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl w-full transition-colors"
+        disabled={isSearching}
+        className={`font-semibold py-3 rounded-xl w-full transition-colors ${
+          isSearching
+            ? 'bg-blue-600/70 text-white cursor-wait'
+            : 'bg-blue-600 hover:bg-blue-700 text-white'
+        }`}
       >
-        Buscar Buses
+        {isSearching ? 'Buscando…' : 'Buscar Buses'}
       </button>
     </form>
   )

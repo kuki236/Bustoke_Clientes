@@ -18,6 +18,7 @@ const FALLBACK_PROFILE = {
   docType: 'DNI',
   docNumber: '72819463',
   email: 'sebastian.tejeda@bustoke.pe',
+  phone: '987654321',
   accountType: 'Pasajero B2C',
 }
 
@@ -54,7 +55,7 @@ function FieldRow({ icon: Icon, label, value }) {
           {label}
         </span>
         <span className="text-sm font-semibold text-neutral-900 mt-0.5 break-words">
-          {value}
+          {value || '—'}
         </span>
       </div>
     </div>
@@ -64,6 +65,8 @@ function FieldRow({ icon: Icon, label, value }) {
 function ProfileFields({ profile, className = '' }) {
   return (
     <div className={`flex flex-col divide-y divide-neutral-100 ${className}`}>
+      <FieldRow icon={Mail} label="Correo electrónico" value={profile.email} />
+      <FieldRow icon={Hash} label="Teléfono" value={profile.phone} />
       <FieldRow icon={UserRound} label="Nombres" value={profile.names} />
       <FieldRow
         icon={UserRound}
@@ -83,24 +86,23 @@ function ProfileFields({ profile, className = '' }) {
       <FieldRow
         icon={Hash}
         label="Número de documento"
-        value={profile.docNumber || '—'}
-      />
-      <FieldRow
-        icon={Mail}
-        label="Correo electrónico"
-        value={profile.email}
+        value={profile.docNumber}
       />
     </div>
   )
 }
 
 function ProfileSidebar({ profile }) {
+  const fullName = [profile.names, profile.paternalSurname, profile.maternalSurname]
+    .filter(Boolean)
+    .join(' ')
+    .trim()
   return (
     <aside className="bg-white rounded-2xl shadow-card p-6 flex flex-col items-center gap-4 text-center h-fit">
       <ProfileAvatar size="xl" />
       <div className="flex flex-col gap-1">
         <p className="text-lg font-bold text-neutral-900">
-          {profile.names} {profile.paternalSurname} {profile.maternalSurname}
+          {fullName || profile.email || 'Cuenta BUSTOKE'}
         </p>
         <span className="inline-flex items-center justify-center bg-blue-50 text-blue-600 border border-blue-100 rounded-full px-3 py-0.5 text-xs font-medium">
           {profile.accountType}
@@ -203,7 +205,9 @@ export default function ProfilePage({ onNavigate, onBack }) {
         <header className="bg-blue-600 p-6 text-white text-center rounded-b-3xl flex flex-col items-center gap-3">
           <ProfileAvatar size="xl" />
           <p className="text-xl font-bold leading-tight">
-            {profile.names} {profile.paternalSurname}
+            {[profile.names, profile.paternalSurname].filter(Boolean).join(' ') ||
+              profile.email ||
+              'Cuenta BUSTOKE'}
           </p>
           <span className="inline-flex items-center justify-center bg-white/15 text-white border border-white/30 rounded-full px-3 py-0.5 text-xs font-medium">
             {profile.accountType}
