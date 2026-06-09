@@ -5,6 +5,8 @@ import MobileHeader from './MobileHeader'
 import Hero from './Hero'
 import MobileSearchCard from './MobileSearchCard'
 import DestinationCarousel from './DestinationCarousel'
+import BenefitsSection from './BenefitsSection'
+import FaqSection from './FaqSection'
 import BottomNav from './BottomNav'
 import LoginPage from './LoginPage'
 import RegisterPage from './RegisterPage'
@@ -31,12 +33,12 @@ const VALID_TABS = new Set([
 export default function LandingPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const initialTab = searchParams.get('tab')
   const [search, setSearch] = useState(INITIAL_SEARCH)
-  const [currentScreen, setCurrentScreen] = useState(
-    initialTab && VALID_TABS.has(initialTab) ? initialTab : 'buscar',
-  )
   const [linkedTrip, setLinkedTrip] = useState(null)
+
+  const tabFromUrl = searchParams.get('tab')
+  const currentScreen =
+    tabFromUrl && VALID_TABS.has(tabFromUrl) ? tabFromUrl : 'buscar'
 
   const handleChange = (field, value) => {
     setSearch((prev) => ({ ...prev, [field]: value }))
@@ -53,16 +55,19 @@ export default function LandingPage() {
   }
 
   const handleBackToLanding = () => {
-    setCurrentScreen('buscar')
+    const next = new URLSearchParams(searchParams)
+    next.delete('tab')
+    setSearchParams(next, { replace: true })
   }
 
   const handleGoHome = () => {
-    setCurrentScreen('buscar')
+    const next = new URLSearchParams(searchParams)
+    next.delete('tab')
+    setSearchParams(next, { replace: true })
   }
 
   const handleNavigate = (tab) => {
     if (!VALID_TABS.has(tab)) return
-    setCurrentScreen(tab)
     const next = new URLSearchParams(searchParams)
     if (tab === 'buscar') {
       next.delete('tab')
@@ -74,11 +79,25 @@ export default function LandingPage() {
 
   const handleReportIssue = (trip) => {
     setLinkedTrip(trip ?? null)
-    setCurrentScreen('reclamos')
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', 'reclamos')
+    setSearchParams(next, { replace: true })
   }
 
   const handleChangeAuthMode = (mode) => {
-    setCurrentScreen(mode)
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', mode)
+    setSearchParams(next, { replace: true })
+  }
+
+  const handleSelectDestination = (destination) => {
+    if (!destination) return
+    setSearch((prev) => ({
+      ...prev,
+      origin: 2,
+      destination: destination.id_terminal,
+    }))
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   if (currentScreen === 'login') {
@@ -141,8 +160,10 @@ export default function LandingPage() {
             <h2 className="text-neutral-900 font-semibold text-lg mb-4">
               Descubre tu próximo destino
             </h2>
-            <DestinationCarousel />
+            <DestinationCarousel onSelect={handleSelectDestination} />
           </section>
+          <BenefitsSection />
+          <FaqSection />
         </main>
         <BottomNav active="buscar" onNavigate={handleNavigate} />
       </div>

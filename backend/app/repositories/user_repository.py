@@ -42,6 +42,16 @@ class UserRepository:
         self.db.refresh(user)
         return user
 
+    def add(self, user: Usuario) -> None:
+        """
+        Encola un `Usuario` en la `UnitOfWork` actual sin confirmar.
+
+        Pensado para transacciones atómicas multi-INSERT controladas
+        por la capa de servicio. El `id_usuario` autoincremental se
+        materializa con un `db.flush()` posterior.
+        """
+        self.db.add(user)
+
     def update(self, user: Usuario) -> Usuario:
         """Confirma cambios sobre un usuario ya trackeado."""
         self.db.commit()

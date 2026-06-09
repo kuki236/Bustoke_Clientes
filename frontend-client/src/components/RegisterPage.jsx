@@ -1,19 +1,17 @@
 import {
   ArrowLeft,
   Bus,
-  ChevronLeft,
-  ChevronRight,
   Eye,
   EyeOff,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import Navbar from './Navbar'
 import Alert from './Alert'
 
 const HERO_IMAGES = [
   'https://images.unsplash.com/photo-1526392060635-9d6019884377?auto=format&fit=crop&w=1600&q=80',
-  'https://images.unsplash.com/photo-1587595431973-160d0d94c1d6?auto=format&fit=crop&w=1600&q=80',
+  'https://images.unsplash.com/photo-1620417396507-9a57523d16a6?auto=format&fit=crop&w=1600&q=80',
   'https://images.unsplash.com/photo-1531968455001-5c5272a41129?auto=format&fit=crop&w=1600&q=80',
 ]
 
@@ -32,17 +30,22 @@ const CAROUSEL_QUOTES = [
   },
 ]
 
+const CAROUSEL_INTERVAL_MS = 5000
+
 function AuthHeroPanel() {
   const [activeIndex, setActiveIndex] = useState(0)
   const total = HERO_IMAGES.length
   const quote = CAROUSEL_QUOTES[activeIndex]
+  const intervalRef = useRef(null)
 
-  const goPrev = () => {
-    setActiveIndex((prev) => (prev - 1 + total) % total)
-  }
-  const goNext = () => {
-    setActiveIndex((prev) => (prev + 1) % total)
-  }
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % total)
+    }, CAROUSEL_INTERVAL_MS)
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [total])
 
   return (
     <aside
@@ -69,8 +72,8 @@ function AuthHeroPanel() {
         </p>
       </div>
 
-      <div className="relative z-10 mt-8 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="relative z-10 mt-8 flex items-center justify-start">
+        <div className="flex items-center gap-2 opacity-70">
           {HERO_IMAGES.map((_, i) => (
             <button
               key={`dot-${i}`}
@@ -85,24 +88,6 @@ function AuthHeroPanel() {
             />
           ))}
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={goPrev}
-            aria-label="Imagen anterior"
-            className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-sm flex items-center justify-center transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4 text-white" />
-          </button>
-          <button
-            type="button"
-            onClick={goNext}
-            aria-label="Siguiente imagen"
-            className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-sm flex items-center justify-center transition-colors"
-          >
-            <ChevronRight className="w-4 h-4 text-white" />
-          </button>
-        </div>
       </div>
     </aside>
   )
@@ -110,7 +95,7 @@ function AuthHeroPanel() {
 
 function MobileLogoHeader() {
   return (
-    <header className="block md:hidden bg-white border-b border-neutral-100 px-5 py-4 flex items-center gap-2 text-blue-600">
+    <header className="block md:hidden bg-white border-b border-neutral-100 pt-8 pl-8 pr-8 pb-4 flex items-center gap-2 text-blue-600">
       <Bus className="w-6 h-6" />
       <span className="text-lg font-bold tracking-tight">BUSTOKE</span>
     </header>
@@ -132,10 +117,10 @@ function AuthToggleLink({ onChangeMode }) {
   )
 }
 
-function FormField({ id, name, label, type = 'text', placeholder, value, onChange, autoComplete, inputMode, children }) {
+function FormField({ id, name, label, type = 'text', placeholder, value, onChange, autoComplete, inputMode, pattern, children }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-xs font-semibold text-neutral-900 mb-1">
+    <div className="flex flex-col gap-1">
+      <label htmlFor={id} className="text-xs font-semibold text-neutral-900 mb-0.5">
         {label}
       </label>
       {children ? (
@@ -146,6 +131,7 @@ function FormField({ id, name, label, type = 'text', placeholder, value, onChang
             type={type}
             autoComplete={autoComplete}
             inputMode={inputMode}
+            pattern={pattern}
             value={value}
             onChange={onChange}
             placeholder={placeholder}
@@ -160,6 +146,7 @@ function FormField({ id, name, label, type = 'text', placeholder, value, onChang
           type={type}
           autoComplete={autoComplete}
           inputMode={inputMode}
+          pattern={pattern}
           value={value}
           onChange={onChange}
           placeholder={placeholder}
@@ -170,12 +157,61 @@ function FormField({ id, name, label, type = 'text', placeholder, value, onChang
   )
 }
 
+const TIPOS_DOCUMENTO_OPTIONS = [
+  { value: 'DNI', label: 'DNI', pattern: '[0-9]{8}', inputMode: 'numeric', maxLength: 8 },
+  { value: 'C.E.', label: 'C.E.', pattern: '[0-9]{9}', inputMode: 'numeric', maxLength: 9 },
+  { value: 'Pasaporte', label: 'Pasaporte', pattern: undefined, inputMode: 'text', maxLength: 20 },
+]
+
+function DocumentoField({ tipoDocumento, numeroDocumento, onTipoChange, onNumeroChange }) {
+  const selected = TIPOS_DOCUMENTO_OPTIONS.find((opt) => opt.value === tipoDocumento) || TIPOS_DOCUMENTO_OPTIONS[0]
+
+  return (
+    <div className="flex flex-col gap-1 w-full">
+      <label
+        htmlFor="numero_documento"
+        className="text-xs font-semibold text-neutral-900 mb-0.5"
+      >
+        Documento de Identidad
+      </label>
+      <div className="flex items-center w-full gap-2 mt-1">
+        <select
+          aria-label="Tipo de documento"
+          value={tipoDocumento}
+          onChange={(e) => onTipoChange(e.target.value)}
+          className="w-[28%] shrink-0 border border-neutral-300 rounded-xl bg-neutral-50 px-2 py-2.5 text-sm text-neutral-900 font-medium outline-none cursor-pointer focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        >
+          {TIPOS_DOCUMENTO_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <input
+          id="numero_documento"
+          name="numero_documento"
+          type="text"
+          autoComplete="off"
+          inputMode={selected.inputMode}
+          pattern={selected.pattern}
+          maxLength={selected.maxLength}
+          value={numeroDocumento}
+          onChange={(e) => onNumeroChange(e.target.value)}
+          placeholder="Ej. 45678912"
+          className="flex-1 min-w-0 border border-neutral-300 rounded-xl bg-white px-3 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        />
+      </div>
+    </div>
+  )
+}
+
 function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
   const { registerUser, isAuthenticated } = useAuth()
   const [form, setForm] = useState({
     nombres: '',
     apellido_paterno: '',
     apellido_materno: '',
+    tipo_documento: 'DNI',
     numero_documento: '',
     correo: '',
     contrasena: '',
@@ -197,7 +233,8 @@ function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
       ['nombres', 'Nombres'],
       ['apellido_paterno', 'Apellido Paterno'],
       ['apellido_materno', 'Apellido Materno'],
-      ['numero_documento', 'DNI'],
+      ['tipo_documento', 'Tipo de documento'],
+      ['numero_documento', 'Número de documento'],
       ['correo', 'Correo electrónico'],
       ['contrasena', 'Contraseña'],
     ]
@@ -222,11 +259,11 @@ function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
         nombres: form.nombres.trim(),
         apellido_paterno: form.apellido_paterno.trim(),
         apellido_materno: form.apellido_materno.trim(),
-        tipo_documento: 'DNI',
+        tipo_documento: form.tipo_documento,
         numero_documento: form.numero_documento.trim(),
-        email: form.correo.trim(),
-        password: form.contrasena,
         telefono: form.telefono.trim(),
+        email: form.correo.trim(),
+        contrasena: form.contrasena,
       })
     } catch (err) {
       const status = err?.status
@@ -271,7 +308,7 @@ function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
     <form
       onSubmit={handleSubmit}
       noValidate
-      className="flex flex-col gap-4 w-full"
+      className="flex flex-col space-y-3 w-full"
     >
       <FormField
         id="nombres"
@@ -282,12 +319,12 @@ function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
         value={form.nombres}
         onChange={update('nombres')}
       />
-      <div className="grid sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-3">
         <FormField
           id="apellido_paterno"
           name="apellido_paterno"
           label="Apellido Paterno"
-          placeholder="Apellido paterno"
+          placeholder="Ej. Pérez"
           autoComplete="family-name"
           value={form.apellido_paterno}
           onChange={update('apellido_paterno')}
@@ -296,31 +333,17 @@ function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
           id="apellido_materno"
           name="apellido_materno"
           label="Apellido Materno"
-          placeholder="Apellido materno"
+          placeholder="Ej. Mendoza"
           autoComplete="family-name"
           value={form.apellido_materno}
           onChange={update('apellido_materno')}
         />
       </div>
-      <FormField
-        id="numero_documento"
-        name="numero_documento"
-        label="DNI"
-        placeholder="Ingresa tu número de DNI"
-        autoComplete="off"
-        inputMode="numeric"
-        value={form.numero_documento}
-        onChange={update('numero_documento')}
-      />
-      <FormField
-        id="correo"
-        name="correo"
-        type="email"
-        label="Correo electrónico"
-        placeholder="Escribe tu correo"
-        autoComplete="email"
-        value={form.correo}
-        onChange={update('correo')}
+      <DocumentoField
+        tipoDocumento={form.tipo_documento}
+        numeroDocumento={form.numero_documento}
+        onTipoChange={(value) => setForm((prev) => ({ ...prev, tipo_documento: value, numero_documento: '' }))}
+        onNumeroChange={(value) => setForm((prev) => ({ ...prev, numero_documento: value }))}
       />
       <FormField
         id="telefono"
@@ -329,16 +352,27 @@ function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
         label="Teléfono (opcional)"
         placeholder="Ej. 987654321"
         autoComplete="tel"
-        inputMode="tel"
+        inputMode="numeric"
+        pattern="[0-9]{9}"
         value={form.telefono}
         onChange={update('telefono')}
+      />
+      <FormField
+        id="correo"
+        name="correo"
+        type="email"
+        label="Correo electrónico"
+        placeholder="ejemplo@correo.com"
+        autoComplete="email"
+        value={form.correo}
+        onChange={update('correo')}
       />
       <FormField
         id="contrasena"
         name="contrasena"
         type={showPassword ? 'text' : 'password'}
         label="Contraseña"
-        placeholder="Crea una contraseña segura"
+        placeholder="••••••••"
         autoComplete="new-password"
         value={form.contrasena}
         onChange={update('contrasena')}
@@ -349,7 +383,7 @@ function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
           aria-label={
             showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'
           }
-          className="absolute inset-y-0 right-2 my-1 px-2 inline-flex items-center justify-center text-blue-600 text-xs font-semibold rounded-md hover:bg-blue-50 transition-colors"
+          className="absolute inset-y-0 right-2 my-1 p-2 inline-flex items-center justify-center text-blue-600 text-xs font-semibold rounded-md hover:bg-blue-50 transition-colors"
         >
           {showPassword ? (
             <span className="inline-flex items-center gap-1">
@@ -367,7 +401,7 @@ function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
 
       <label
         htmlFor="terminos"
-        className="flex items-start gap-2 text-sm text-neutral-700 cursor-pointer"
+        className="flex items-start gap-2 text-xs leading-tight text-neutral-700 cursor-pointer"
       >
         <input
           id="terminos"
@@ -379,13 +413,21 @@ function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
         />
         <span>
           Acepto los{' '}
-          <span className="text-blue-600 font-medium">
+          <a
+            href="#terminos"
+            onClick={(e) => e.preventDefault()}
+            className="text-blue-600 hover:text-blue-700 hover:underline cursor-pointer transition-colors font-medium"
+          >
             Términos y Condiciones
-          </span>{' '}
+          </a>{' '}
           y la{' '}
-          <span className="text-blue-600 font-medium">
+          <a
+            href="#privacidad"
+            onClick={(e) => e.preventDefault()}
+            className="text-blue-600 hover:text-blue-700 hover:underline cursor-pointer transition-colors font-medium"
+          >
             Política de Privacidad
-          </span>
+          </a>
           .
         </span>
       </label>
@@ -410,7 +452,7 @@ function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
         <button
           type="button"
           onClick={onBack}
-          className="mt-2 inline-flex items-center justify-center gap-1 text-sm text-neutral-600 hover:text-blue-600 transition-colors"
+          className="mt-6 text-sm font-medium flex items-center justify-center gap-2 text-neutral-500 hover:text-neutral-700 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           Volver al inicio
@@ -453,10 +495,10 @@ export default function RegisterPage({ onChangeMode, onBack }) {
           </div>
         </div>
 
-        <div className="block md:hidden pb-24">
+        <div className="block md:hidden">
           <MobileLogoHeader />
-          <div className="p-6 mt-8 flex flex-col gap-4">
-            <header className="flex flex-col gap-2">
+          <div className="min-h-[calc(100vh-70px)] flex flex-col justify-center px-6 pb-12">
+            <header className="flex flex-col gap-2 mb-4">
               <h1 className="text-3xl font-semibold text-neutral-900">
                 Crear cuenta
               </h1>

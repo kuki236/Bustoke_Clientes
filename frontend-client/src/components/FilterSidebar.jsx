@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Search } from 'lucide-react'
 import Autocomplete from './Autocomplete'
 import {
@@ -39,13 +38,13 @@ function PriceRange({ priceMin, priceMax, min, max, onChange }) {
   const rightPercent = 100 - ((priceMax - min) / (max - min)) * 100
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between text-xs text-neutral-600">
         <span>
-          S/ <span className="font-semibold text-neutral-900">{priceMin}</span>
+          Desde S/ <span className="font-semibold text-neutral-900">{priceMin}</span>
         </span>
         <span>
-          S/ <span className="font-semibold text-neutral-900">{priceMax}</span>
+          Hasta S/ <span className="font-semibold text-neutral-900">{priceMax}</span>
         </span>
       </div>
       <div className="relative h-6 flex items-center">
@@ -81,10 +80,6 @@ function PriceRange({ priceMin, priceMax, min, max, onChange }) {
           aria-label="Precio máximo"
         />
       </div>
-      <div className="flex justify-between text-[10px] text-neutral-500">
-        <span>S/ {min}</span>
-        <span>S/ {max}</span>
-      </div>
     </div>
   )
 }
@@ -95,71 +90,50 @@ export default function FilterSidebar({
   filters,
   onApply,
   onClear,
-  isApplying = false,
 }) {
   const PRICE_MIN_BOUND = PRICE_RANGE.min
   const PRICE_MAX_BOUND = PRICE_RANGE.max
 
-  const [priceMin, setPriceMin] = useState(filters.priceMin)
-  const [priceMax, setPriceMax] = useState(filters.priceMax)
-  const [companies, setCompanies] = useState(filters.companies)
-  const [seatTypes, setSeatTypes] = useState(filters.seatTypes)
-  const [shifts, setShifts] = useState(filters.shifts)
-  const [lastSeenFilters, setLastSeenFilters] = useState(filters)
-
-  // Patrón recomendado por React para sincronizar estado local con
-  // props externos: si los filtros cambiaron desde fuera
-  // (Apply / Clear / navegación), actualizamos el estado local
-  // durante el render sin disparar un useEffect.
-  // Ref: https://react.dev/reference/react/useState#storing-information-from-previous-renders
-  if (
-    filters.priceMin !== lastSeenFilters.priceMin ||
-    filters.priceMax !== lastSeenFilters.priceMax ||
-    filters.companies !== lastSeenFilters.companies ||
-    filters.seatTypes !== lastSeenFilters.seatTypes ||
-    filters.shifts !== lastSeenFilters.shifts
-  ) {
-    setLastSeenFilters(filters)
-    setPriceMin(filters.priceMin)
-    setPriceMax(filters.priceMax)
-    setCompanies(filters.companies)
-    setSeatTypes(filters.seatTypes)
-    setShifts(filters.shifts)
+  const emit = (overrides = {}) => {
+    if (typeof onApply !== 'function') return
+    onApply({
+      priceMin: PRICE_MIN_BOUND,
+      priceMax: PRICE_MAX_BOUND,
+      companies: [],
+      seatTypes: [],
+      shifts: [],
+      ...filters,
+      ...overrides,
+    })
   }
 
-  const toggle = (list, setList, value) => {
-    setList(
-      list.includes(value)
-        ? list.filter((item) => item !== value)
-        : [...list, value],
-    )
+  const handlePriceChange = ({ priceMin, priceMax }) => {
+    emit({ priceMin, priceMax })
   }
 
-  const handleClearLocal = () => {
-    setPriceMin(PRICE_MIN_BOUND)
-    setPriceMax(PRICE_MAX_BOUND)
-    setCompanies([])
-    setSeatTypes([])
-    setShifts([])
+  const toggleCompany = (id) => {
+    const next = filters.companies.includes(id)
+      ? filters.companies.filter((c) => c !== id)
+      : [...filters.companies, id]
+    emit({ companies: next })
   }
 
-  const handleApply = () => {
-    if (typeof onApply === 'function') {
-      onApply({
-        priceMin,
-        priceMax,
-        companies,
-        seatTypes,
-        shifts,
-      })
-    }
+  const toggleSeatType = (value) => {
+    const next = filters.seatTypes.includes(value)
+      ? filters.seatTypes.filter((s) => s !== value)
+      : [...filters.seatTypes, value]
+    emit({ seatTypes: next })
+  }
+
+  const toggleShift = (value) => {
+    const next = filters.shifts.includes(value)
+      ? filters.shifts.filter((s) => s !== value)
+      : [...filters.shifts, value]
+    emit({ shifts: next })
   }
 
   const handleClear = () => {
-    handleClearLocal()
-    if (typeof onClear === 'function') {
-      onClear()
-    }
+    if (typeof onClear === 'function') onClear()
   }
 
   return (
@@ -192,7 +166,6 @@ export default function FilterSidebar({
             type="button"
             onClick={handleClear}
             className="text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors"
-            disabled={isApplying}
           >
             Limpiar
           </button>
@@ -202,14 +175,11 @@ export default function FilterSidebar({
           <div className="flex flex-col gap-3">
             <p className="text-xs font-medium text-neutral-500">Precio</p>
             <PriceRange
-              priceMin={priceMin}
-              priceMax={priceMax}
+              priceMin={filters.priceMin}
+              priceMax={filters.priceMax}
               min={PRICE_MIN_BOUND}
               max={PRICE_MAX_BOUND}
-              onChange={({ priceMin: nMin, priceMax: nMax }) => {
-                setPriceMin(nMin)
-                setPriceMax(nMax)
-              }}
+              onChange={handlePriceChange}
             />
           </div>
 
@@ -220,10 +190,8 @@ export default function FilterSidebar({
                 <Checkbox
                   key={agency.id_agencia}
                   label={agency.nombre}
-                  checked={companies.includes(agency.id_agencia)}
-                  onChange={() =>
-                    toggle(companies, setCompanies, agency.id_agencia)
-                  }
+                  checked={filters.companies.includes(agency.id_agencia)}
+                  onChange={() => toggleCompany(agency.id_agencia)}
                 />
               ))}
             </div>
@@ -238,8 +206,8 @@ export default function FilterSidebar({
                 <Checkbox
                   key={seat}
                   label={seat}
-                  checked={seatTypes.includes(seat)}
-                  onChange={() => toggle(seatTypes, setSeatTypes, seat)}
+                  checked={filters.seatTypes.includes(seat)}
+                  onChange={() => toggleSeatType(seat)}
                 />
               ))}
             </div>
@@ -252,23 +220,14 @@ export default function FilterSidebar({
                 <Checkbox
                   key={shift}
                   label={shift}
-                  checked={shifts.includes(shift)}
-                  onChange={() => toggle(shifts, setShifts, shift)}
+                  checked={filters.shifts.includes(shift)}
+                  onChange={() => toggleShift(shift)}
                 />
               ))}
             </div>
           </div>
         </div>
       </FilterGroup>
-
-      <button
-        type="button"
-        onClick={handleApply}
-        disabled={isApplying}
-        className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 text-white text-sm font-semibold py-2.5 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-      >
-        {isApplying ? 'Aplicando…' : 'Aplicar Filtros'}
-      </button>
     </aside>
   )
 }

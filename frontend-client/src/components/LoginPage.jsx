@@ -1,19 +1,18 @@
 import {
   ArrowLeft,
   Bus,
-  ChevronLeft,
-  ChevronRight,
   Eye,
   EyeOff,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Navbar from './Navbar'
 import Alert from './Alert'
 
 const HERO_IMAGES = [
   'https://images.unsplash.com/photo-1526392060635-9d6019884377?auto=format&fit=crop&w=1600&q=80',
-  'https://images.unsplash.com/photo-1587595431973-160d0d94c1d6?auto=format&fit=crop&w=1600&q=80',
+  'https://images.unsplash.com/photo-1527736848781-72dc3b2ee00f?auto=format&fit=crop&w=1600&q=80',
   'https://images.unsplash.com/photo-1531968455001-5c5272a41129?auto=format&fit=crop&w=1600&q=80',
 ]
 
@@ -32,17 +31,22 @@ const CAROUSEL_QUOTES = [
   },
 ]
 
+const CAROUSEL_INTERVAL_MS = 5000
+
 function AuthHeroPanel() {
   const [activeIndex, setActiveIndex] = useState(0)
   const total = HERO_IMAGES.length
   const quote = CAROUSEL_QUOTES[activeIndex]
+  const intervalRef = useRef(null)
 
-  const goPrev = () => {
-    setActiveIndex((prev) => (prev - 1 + total) % total)
-  }
-  const goNext = () => {
-    setActiveIndex((prev) => (prev + 1) % total)
-  }
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % total)
+    }, CAROUSEL_INTERVAL_MS)
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [total])
 
   return (
     <aside
@@ -69,8 +73,8 @@ function AuthHeroPanel() {
         </p>
       </div>
 
-      <div className="relative z-10 mt-8 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="relative z-10 mt-8 flex items-center justify-start">
+        <div className="flex items-center gap-2 opacity-70">
           {HERO_IMAGES.map((_, i) => (
             <button
               key={`dot-${i}`}
@@ -85,24 +89,6 @@ function AuthHeroPanel() {
             />
           ))}
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={goPrev}
-            aria-label="Imagen anterior"
-            className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-sm flex items-center justify-center transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4 text-white" />
-          </button>
-          <button
-            type="button"
-            onClick={goNext}
-            aria-label="Siguiente imagen"
-            className="w-9 h-9 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-sm flex items-center justify-center transition-colors"
-          >
-            <ChevronRight className="w-4 h-4 text-white" />
-          </button>
-        </div>
       </div>
     </aside>
   )
@@ -110,7 +96,7 @@ function AuthHeroPanel() {
 
 function MobileLogoHeader() {
   return (
-    <header className="block md:hidden bg-white border-b border-neutral-100 px-5 py-4 flex items-center gap-2 text-blue-600">
+    <header className="block md:hidden bg-white border-b border-neutral-100 pt-8 pl-8 pr-8 pb-4 flex items-center gap-2 text-blue-600">
       <Bus className="w-6 h-6" />
       <span className="text-lg font-bold tracking-tight">BUSTOKE</span>
     </header>
@@ -139,6 +125,7 @@ function AuthToggleLink({ mode, onChangeMode }) {
 
 function LoginForm({ onChangeMode, onBack, isDesktop = false }) {
   const { loginUser } = useAuth()
+  const navigate = useNavigate()
   const [correo, setCorreo] = useState('')
   const [contrasena, setContrasena] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -163,6 +150,7 @@ function LoginForm({ onChangeMode, onBack, isDesktop = false }) {
           // ignore
         }
       }
+      navigate('/', { replace: true })
     } catch (err) {
       const status = err?.status
       if (status === 401) {
@@ -201,7 +189,7 @@ function LoginForm({ onChangeMode, onBack, isDesktop = false }) {
           autoComplete="email"
           value={correo}
           onChange={(e) => setCorreo(e.target.value)}
-          placeholder="Escribe tu correo"
+          placeholder="ejemplo@correo.com"
           className="w-full px-3 py-2.5 border border-neutral-300 rounded-xl text-sm text-neutral-900 placeholder:text-neutral-400 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
       </div>
@@ -221,7 +209,7 @@ function LoginForm({ onChangeMode, onBack, isDesktop = false }) {
             autoComplete="current-password"
             value={contrasena}
             onChange={(e) => setContrasena(e.target.value)}
-            placeholder="Escribe tu contraseña"
+            placeholder="••••••••"
             className="w-full px-3 pr-20 py-2.5 border border-neutral-300 rounded-xl text-sm text-neutral-900 placeholder:text-neutral-400 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
           <button
@@ -230,7 +218,7 @@ function LoginForm({ onChangeMode, onBack, isDesktop = false }) {
             aria-label={
               showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'
             }
-            className="absolute inset-y-0 right-2 my-1 px-2 inline-flex items-center justify-center text-blue-600 text-xs font-semibold rounded-md hover:bg-blue-50 transition-colors"
+            className="absolute inset-y-0 right-2 my-1 p-2 inline-flex items-center justify-center text-blue-600 text-xs font-semibold rounded-md hover:bg-blue-50 transition-colors"
           >
             {showPassword ? (
               <span className="inline-flex items-center gap-1">
@@ -247,7 +235,7 @@ function LoginForm({ onChangeMode, onBack, isDesktop = false }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 my-6">
         <label
           htmlFor="recordar"
           className="inline-flex items-center gap-2 text-sm text-neutral-700 cursor-pointer"
@@ -290,7 +278,7 @@ function LoginForm({ onChangeMode, onBack, isDesktop = false }) {
         <button
           type="button"
           onClick={onBack}
-          className="mt-2 inline-flex items-center justify-center gap-1 text-sm text-neutral-600 hover:text-blue-600 transition-colors"
+          className="mt-8 text-sm font-medium flex items-center justify-center gap-2 text-neutral-500 hover:text-neutral-700 transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
           Volver al inicio
@@ -322,7 +310,7 @@ function LoginPageContent({ onChangeMode, onBack }) {
                 Iniciar sesión
               </h1>
               <p className="text-sm text-neutral-600">
-                Bienvenida de nuevo, por favor ingrese sus datos.
+                ¡Qué bueno verte de nuevo! Ingresa tus datos para continuar.
               </p>
             </header>
             <LoginForm
@@ -333,15 +321,15 @@ function LoginPageContent({ onChangeMode, onBack }) {
           </div>
         </div>
 
-        <div className="block md:hidden pb-24">
+        <div className="block md:hidden">
           <MobileLogoHeader />
-          <div className="p-6 mt-8 flex flex-col gap-4">
-            <header className="flex flex-col gap-2">
+          <div className="min-h-[calc(100vh-70px)] flex flex-col justify-center px-6 pb-12">
+            <header className="flex flex-col gap-2 mb-4">
               <h1 className="text-3xl font-semibold text-neutral-900">
                 Iniciar sesión
               </h1>
               <p className="text-sm text-neutral-600">
-                Bienvenida de nuevo, por favor ingrese sus datos.
+                ¡Qué bueno verte de nuevo! Ingresa tus datos para continuar.
               </p>
             </header>
             <LoginForm onChangeMode={onChangeMode} onBack={onBack} />

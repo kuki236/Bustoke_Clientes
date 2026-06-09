@@ -15,6 +15,53 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 # ============================================================================
+# REGISTRO B2C (RF-01) - Payload completo del frontend móvil
+# ============================================================================
+
+class RegisterSchema(BaseModel):
+    """
+    Payload de registro recibido por `POST /v1/auth/register`.
+
+    Consolida en un único esquema los 7 campos que envía la app móvil
+    (datos de credenciales + datos personales del pasajero):
+
+    - `nombres`, `apellido_paterno`, `apellido_materno`
+    - `tipo_documento` (string, p.ej. 'DNI', 'Pasaporte', 'CE')
+    - `numero_documento`
+    - `telefono`
+    - `email`
+    - `contrasena` (alias de `password` para mantener el contrato del FE)
+
+    La contraseña llega en texto plano; el service la hashea con bcrypt
+    antes de persistirla. El rol se fuerza a `'cliente'` y el campo
+    `tipo_documento` se traduce a `id_tipo_documento` consultando
+    la tabla catálogo `tipos_documento` (RF-01).
+    """
+
+    nombres: str = Field(..., min_length=1, max_length=100)
+    apellido_paterno: str = Field(..., min_length=1, max_length=100)
+    apellido_materno: str = Field(..., min_length=1, max_length=100)
+    tipo_documento: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="Etiqueta del tipo de documento (DNI, Pasaporte, CE, ...)",
+    )
+    numero_documento: str = Field(..., min_length=1, max_length=50)
+    telefono: str = Field(..., min_length=1, max_length=20)
+    email: EmailStr = Field(..., max_length=150)
+    contrasena: str = Field(
+        ...,
+        min_length=8,
+        max_length=128,
+        alias="contrasena",
+        description="Contraseña en texto plano (se hashea con bcrypt)",
+    )
+
+    model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
+
+
+# ============================================================================
 # USUARIO
 # ============================================================================
 
@@ -67,7 +114,13 @@ class UsuarioUpdate(BaseModel):
 
 
 class UsuarioRead(UsuarioBase):
-    """Representación pública de un usuario."""
+    """Representación pública de un usuario.
+
+    Los campos `nombres` y `apellido_paterno` se proyectan desde la
+    tabla `pasajeros` cuando el `Usuario` está vinculado a un registro
+    `Pasajero` (caso B2C). Para usuarios administrativos (rol distinto
+    a `'cliente'`) viajan como `None`.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -76,6 +129,8 @@ class UsuarioRead(UsuarioBase):
     id_agencia: Optional[int] = None
     activo: bool
     fecha_creacion: datetime
+    nombres: Optional[str] = None
+    apellido_paterno: Optional[str] = None
 
 
 class UsuarioInDB(UsuarioRead):

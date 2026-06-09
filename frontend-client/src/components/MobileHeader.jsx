@@ -1,4 +1,4 @@
-import { Bell, Bus } from 'lucide-react'
+import { Bus } from 'lucide-react'
 
 export default function MobileHeader() {
   return (
@@ -8,13 +8,6 @@ export default function MobileHeader() {
           <Bus className="w-6 h-6" />
           <span className="text-lg font-bold tracking-tight">BUSTOKE</span>
         </div>
-        <button
-          type="button"
-          aria-label="Notificaciones"
-          className="p-2 rounded-full hover:bg-white/10 transition-colors"
-        >
-          <Bell className="w-5 h-5" />
-        </button>
       </div>
     </header>
   )

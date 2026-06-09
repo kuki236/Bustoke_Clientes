@@ -519,7 +519,6 @@ export default function ResultsPage() {
             filters={filters}
             onApply={handleApplyFilters}
             onClear={handleClearFilters}
-            isApplying={loading}
           />
 
           <section className="flex flex-col gap-6">

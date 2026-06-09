@@ -1,48 +1,52 @@
 const destinations = [
   {
-    name: 'Cartagena',
-    img: 'https://images.unsplash.com/photo-1583531352515-8884af319dc7?auto=format&fit=crop&w=800&q=80',
+    id_terminal: 4,
+    name: 'Trujillo',
+    description: 'La Ciudad de la Eterna Primavera y las huacas de Chan Chan.',
+    img: 'https://upload.wikimedia.org/wikipedia/commons/e/ed/Freedom_Monument%2C_Trujillo.jpg',
   },
   {
-    name: 'Medellín',
-    img: 'https://images.unsplash.com/photo-1664195074951-2a4ba645cf73?auto=format&fit=crop&w=800&q=80',
+    id_terminal: 5,
+    name: 'Arequipa',
+    description: 'Descubre la Ciudad Blanca y el imponente Cañón del Colca.',
+    img: 'https://www.amarujourneyperu.com/blog/wp-content/uploads/plazaarequipa1.webp',
   },
   {
-    name: 'Bogotá',
-    img: 'https://images.unsplash.com/photo-1568632234157-ce7aecd03d0d?auto=format&fit=crop&w=800&q=80',
-  },
-  {
-    name: 'Santa Marta',
-    img: 'https://images.unsplash.com/photo-1591781914437-2c8db4f8b3c4?auto=format&fit=crop&w=800&q=80',
-  },
-  {
-    name: 'San Andrés',
-    img: 'https://images.unsplash.com/photo-1559131397-f94da358f7ca?auto=format&fit=crop&w=800&q=80',
+    id_terminal: 7,
+    name: 'Cusco',
+    description: 'El ombligo del mundo y la majestuosidad de Machu Picchu.',
+    img: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Machu_Picchu%2C_Peru_%282018%29.jpg/1280px-Machu_Picchu%2C_Peru_%282018%29.jpg',
   },
 ]
 
-export default function DestinationCarousel() {
+export default function DestinationCarousel({ onSelect }) {
   return (
-    <div className="overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden -mx-4 px-4">
-      <div className="flex gap-4 pb-2 snap-x snap-mandatory">
-        {destinations.map((d) => (
-          <article
-            key={d.name}
-            className="relative w-64 h-36 rounded-2xl overflow-hidden shrink-0 shadow-card snap-start"
-          >
-            <img
-              src={d.img}
-              alt={d.name}
-              loading="lazy"
-              className="absolute inset-0 w-full h-full object-cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
-            <span className="absolute left-3 bottom-3 text-white font-semibold text-lg">
-              {d.name}
+    <div
+      className="flex overflow-x-auto snap-x snap-mandatory scrollbar-none gap-4 px-4 -mx-4 pb-2"
+      style={{ scrollbarWidth: 'none' }}
+    >
+      {destinations.map((d) => (
+        <button
+          key={d.id_terminal}
+          type="button"
+          onClick={() => onSelect?.(d)}
+          className="relative shrink-0 snap-start overflow-hidden rounded-2xl shadow-card h-48 w-[78%] text-left cursor-pointer hover:scale-[1.02] active:scale-[0.99] transition-transform"
+        >
+          <img
+            src={d.img}
+            alt={d.name}
+            loading="lazy"
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
+          <div className="absolute inset-x-0 bottom-0 p-3 flex flex-col gap-1">
+            <span className="text-white font-semibold text-lg">{d.name}</span>
+            <span className="text-white/85 text-xs leading-snug">
+              {d.description}
             </span>
-          </article>
-        ))}
-      </div>
+          </div>
+        </button>
+      ))}
     </div>
   )
 }

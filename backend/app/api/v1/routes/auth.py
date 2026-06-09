@@ -17,8 +17,8 @@ from app.core.database import get_db
 from app.core.security import decode_token
 from app.schemas.user_schema import (
     LoginRequest,
+    RegisterSchema,
     TokenResponse,
-    UsuarioCreate,
     UsuarioRead,
 )
 from app.services.auth_service import AuthService
@@ -41,11 +41,16 @@ _bearer_scheme = HTTPBearer(auto_error=False)
     tags=["Auth"],
 )
 async def register_user(
-    payload: UsuarioCreate,
+    payload: RegisterSchema,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
     """
     Crea una cuenta de pasajero y devuelve un JWT de acceso.
+
+    Recibe los 7 campos que envía el frontend móvil (datos de
+    credenciales + datos personales) y los persiste de forma
+    atómica en `usuarios` y `pasajeros` dentro de la misma
+    transacción de PostgreSQL.
 
     - Email único.
     - Contraseña con mínimo 8 caracteres (hasheada con bcrypt).
@@ -161,13 +166,5 @@ async def get_me(
             detail="Token malformado",
         ) from exc
 
-    from app.repositories.user_repository import UserRepository
-
-    user = UserRepository(db).get_by_id(user_id)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Usuario no encontrado",
-        )
-
-    return UsuarioRead.model_validate(user)
+    service = AuthService(db)
+    return service.get_me(user_id=user_id)

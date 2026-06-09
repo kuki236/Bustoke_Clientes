@@ -18,9 +18,14 @@ export default function BottomNav({ active = 'buscar', onNavigate }) {
     onNavigate?.(id)
   }
 
+  const thirdItem = !isAuthenticated
+    ? { ...ITEMS[2], label: 'Ingresar' }
+    : ITEMS[2]
+  const items = [ITEMS[0], ITEMS[1], thirdItem]
+
   return (
     <nav className="block md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-neutral-200 flex justify-around items-center py-2 z-50 shadow-lg">
-      {ITEMS.map(({ id, label, icon: Icon }) => {
+      {items.map(({ id, label, icon: Icon }) => {
         const isActive = id === active
         return (
           <button

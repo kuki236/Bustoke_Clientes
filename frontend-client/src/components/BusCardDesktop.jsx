@@ -50,9 +50,12 @@ function SeatsBadge({ seatsLeft }) {
 function BoardingPoint({ point }) {
   if (!point) return null
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-neutral-600">
-      <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-      <span className="truncate max-w-[220px]" title={point}>
+    <span className="inline-flex items-start gap-1.5 text-xs text-neutral-600 max-w-full">
+      <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+      <span
+        className="whitespace-normal text-xs leading-relaxed text-neutral-600 break-words"
+        title={point}
+      >
         Embarque: {point}
       </span>
     </span>
@@ -63,22 +66,14 @@ export default function BusCardDesktop({ trip, selected, onSelect, onChooseSeats
   const seats = Number.isFinite(trip?.seatsLeft) ? trip.seatsLeft : 0
   const isOut = seats <= 0
   return (
-    <label
+    <div
       className={`border rounded-xl p-4 flex items-center justify-between bg-white shadow-sm transition-colors ${
         selected
           ? 'border-blue-600 ring-1 ring-blue-600'
           : 'border-neutral-200 hover:border-neutral-300'
-      } ${isOut ? 'opacity-90' : 'cursor-pointer'}`}
+      } ${isOut ? 'opacity-90' : ''}`}
     >
       <div className="flex items-center gap-4 min-w-0">
-        <input
-          type="radio"
-          name="selected-trip"
-          checked={selected}
-          onChange={() => onSelect(trip.id)}
-          disabled={isOut}
-          className="w-4 h-4 text-blue-600 accent-blue-600 shrink-0 disabled:cursor-not-allowed"
-        />
         <div className="flex flex-col gap-1 min-w-0">
           <span className="text-sm font-semibold text-neutral-900">
             {trip.company}
@@ -114,10 +109,9 @@ export default function BusCardDesktop({ trip, selected, onSelect, onChooseSeats
         <button
           type="button"
           disabled={isOut}
-          onClick={(e) => {
-            e.preventDefault()
+          onClick={() => {
             if (isOut) return
-            onSelect(trip.id)
+            onSelect?.(trip.id)
             onChooseSeats?.(trip)
           }}
           className={`font-medium rounded-lg px-4 py-2 transition-colors ${
@@ -129,6 +123,6 @@ export default function BusCardDesktop({ trip, selected, onSelect, onChooseSeats
           {isOut ? 'Agotado' : 'Elegir Asientos'}
         </button>
       </div>
-    </label>
+    </div>
   )
 }

@@ -41,11 +41,12 @@ export function normalizeUser(rawUser) {
     activo: rawUser.activo !== false,
     fechaCreacion: pick('fecha_creacion', 'fechaCreacion'),
     accountType,
-    names: pick('nombres', 'names', 'name'),
-    paternalSurname: pick('apellido_paterno', 'apellidoPaterno', 'paternal_surname'),
-    maternalSurname: pick('apellido_materno', 'apellidoMaterno', 'maternal_surname'),
-    docType: pick('tipo_documento', 'tipoDocumento', 'doc_type') || 'DNI',
-    docNumber: pick('numero_documento', 'numeroDocumento', 'doc_number'),
+    nombres: pick('nombres', 'names', 'name'),
+    apellido_paterno: pick('apellido_paterno', 'apellidoPaterno', 'paternal_surname'),
+    apellido_materno: pick('apellido_materno', 'apellidoMaterno', 'maternal_surname'),
+    tipo_documento: pick('tipo_documento', 'tipoDocumento', 'doc_type') || 'DNI',
+    numero_documento: pick('numero_documento', 'numeroDocumento', 'doc_number'),
+    telefono: pick('telefono', 'phone'),
     raw: rawUser,
   }
 }
@@ -63,10 +64,24 @@ export async function loginRequest({ email, password }) {
   }
 }
 
-export async function registerRequest({ email, password, telefono }) {
+export async function registerRequest({
+  nombres,
+  apellido_paterno,
+  apellido_materno,
+  tipo_documento,
+  numero_documento,
+  email,
+  contrasena,
+  telefono,
+}) {
   const payload = {
+    nombres: String(nombres || '').trim(),
+    apellido_paterno: String(apellido_paterno || '').trim(),
+    apellido_materno: String(apellido_materno || '').trim(),
+    tipo_documento: String(tipo_documento || '').trim(),
+    numero_documento: String(numero_documento || '').trim(),
     email: String(email || '').trim(),
-    password: String(password || ''),
+    contrasena: String(contrasena || ''),
   }
   const tel = String(telefono || '').trim()
   if (tel) payload.telefono = tel

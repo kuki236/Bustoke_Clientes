@@ -51,7 +51,7 @@ class Pasajero(Base):
     nombres: Mapped[str] = mapped_column(String(100), nullable=False)
     apellido_paterno: Mapped[str] = mapped_column(String(100), nullable=False)
     apellido_materno: Mapped[str] = mapped_column(String(100), nullable=False)
-    fecha_nacimiento: Mapped[date] = mapped_column(Date, nullable=False)
+    fecha_nacimiento: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     usuario: Mapped["Usuario | None"] = relationship("Usuario")
 

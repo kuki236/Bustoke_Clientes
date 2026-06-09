@@ -62,8 +62,13 @@ export function AuthProvider({ children }) {
     setError(null)
     try {
       const { token, user: registeredUser } = await registerRequest({
+        nombres: formData.nombres,
+        apellido_paterno: formData.apellido_paterno,
+        apellido_materno: formData.apellido_materno,
+        tipo_documento: formData.tipo_documento,
+        numero_documento: formData.numero_documento,
         email: formData.email ?? formData.correo,
-        password: formData.password ?? formData.contrasena,
+        contrasena: formData.contrasena ?? formData.password,
         telefono: formData.telefono,
       })
       if (token) {

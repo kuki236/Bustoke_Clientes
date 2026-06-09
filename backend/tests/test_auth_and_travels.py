@@ -91,6 +91,25 @@ def client(session_factory) -> Iterator[TestClient]:
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def _seed_catalogo_documentos(session_factory):
+    """
+    Siembra el catálogo mínimo de `tipos_documento` que el endpoint
+    público `/v1/auth/register` consulta al traducir el string
+    `tipo_documento` que envía el frontend a `id_tipo_documento`.
+    """
+    db = session_factory()
+    try:
+        existing = (
+            db.query(TipoDocumento).filter(TipoDocumento.nombre == "DNI").first()
+        )
+        if existing is None:
+            db.add(TipoDocumento(nombre="DNI", longitud_exacta=8))
+            db.commit()
+    finally:
+        db.close()
+
+
 @pytest.fixture
 def seed(session_factory):
     """Siembra datos mínimos para probar la búsqueda de viajes.
@@ -232,11 +251,17 @@ def seed(session_factory):
 # ============================================================================
 
 def test_register_pasajero_exitoso(client: TestClient):
-    """RF-01: Registro de pasajero devuelve 201 + TokenResponse."""
+    """RF-01: Registro de pasajero devuelve 201 + TokenResponse y crea
+    el registro personal en `pasajeros` dentro de la misma transacción."""
     payload = {
-        "email": "carlos.mendoza@example.com",
-        "password": "MiPassword123!",
+        "nombres": "Carlos",
+        "apellido_paterno": "Mendoza",
+        "apellido_materno": "Quispe",
+        "tipo_documento": "DNI",
+        "numero_documento": "72145639",
         "telefono": "998765432",
+        "email": "carlos.mendoza@example.com",
+        "contrasena": "MiPassword123!",
     }
     r = client.post("/v1/auth/register", json=payload)
     assert r.status_code == 201, r.text
@@ -251,24 +276,42 @@ def test_register_pasajero_exitoso(client: TestClient):
     print(f"  register OK: token={body['access_token'][:30]}...")
 
 
-def test_register_rol_invalido_rechazado(client: TestClient):
-    """Solo se permite rol='cliente' en el endpoint público."""
+def test_register_ignora_rol_enviado_y_siempre_es_cliente(client: TestClient):
+    """El endpoint público B2C ignora cualquier `rol` enviado por el
+    cliente y SIEMPRE crea al usuario con `rol='cliente'`. El blindaje
+    contra escalación de privilegios se hace a nivel de esquema (campo
+    no expuesto en el payload)."""
     r = client.post(
         "/v1/auth/register",
         json={
+            "nombres": "Admin",
+            "apellido_paterno": "Root",
+            "apellido_materno": "System",
+            "tipo_documento": "DNI",
+            "numero_documento": "00000001",
+            "telefono": "900000001",
             "email": "admin@x.com",
-            "password": "Secret123!",
+            "contrasena": "Secret123!",
             "rol": "superadmin",
         },
     )
-    assert r.status_code == 403
-    assert "cliente" in r.json()["detail"]
-    print("  register rechaza rol != 'cliente'")
+    assert r.status_code == 201, r.text
+    assert r.json()["usuario"]["rol"] == "cliente"
+    print("  register ignora 'rol' inyectado -> siempre 'cliente'")
 
 
 def test_register_email_duplicado_devuelve_409(client: TestClient):
     """Un segundo registro con el mismo email debe fallar."""
-    payload = {"email": "dup@example.com", "password": "Secret123!"}
+    payload = {
+        "nombres": "Dup",
+        "apellido_paterno": "User",
+        "apellido_materno": "Test",
+        "tipo_documento": "DNI",
+        "numero_documento": "12345678",
+        "telefono": "987654321",
+        "email": "dup@example.com",
+        "contrasena": "Secret123!",
+    }
     r1 = client.post("/v1/auth/register", json=payload)
     assert r1.status_code == 201
     r2 = client.post("/v1/auth/register", json=payload)
@@ -280,7 +323,16 @@ def test_register_email_duplicado_devuelve_409(client: TestClient):
 def test_register_password_corta_rechazada(client: TestClient):
     r = client.post(
         "/v1/auth/register",
-        json={"email": "x@y.com", "password": "123"},
+        json={
+            "nombres": "X",
+            "apellido_paterno": "Y",
+            "apellido_materno": "Z",
+            "tipo_documento": "DNI",
+            "numero_documento": "11111111",
+            "telefono": "911111111",
+            "email": "x@y.com",
+            "contrasena": "123",
+        },
     )
     assert r.status_code == 422
     print("  register 422 con password corta")
@@ -289,17 +341,89 @@ def test_register_password_corta_rechazada(client: TestClient):
 def test_register_email_invalido_rechazado(client: TestClient):
     r = client.post(
         "/v1/auth/register",
-        json={"email": "no-es-email", "password": "Secret123!"},
+        json={
+            "nombres": "X",
+            "apellido_paterno": "Y",
+            "apellido_materno": "Z",
+            "tipo_documento": "DNI",
+            "numero_documento": "22222222",
+            "telefono": "922222222",
+            "email": "no-es-email",
+            "contrasena": "Secret123!",
+        },
     )
     assert r.status_code == 422
     print("  register 422 con email inválido")
+
+
+def test_register_crea_fila_pasajero_atomicamente(
+    client: TestClient, db_session: Session
+):
+    """El registro debe crear SIEMPRE tanto el `Usuario` como su `Pasajero`
+    asociado (transacción atómica)."""
+    payload = {
+        "nombres": "Ana",
+        "apellido_paterno": "Rojas",
+        "apellido_materno": "Vela",
+        "tipo_documento": "DNI",
+        "numero_documento": "45678901",
+        "telefono": "945123456",
+        "email": "ana.rojas@example.com",
+        "contrasena": "MiPassword123!",
+    }
+    r = client.post("/v1/auth/register", json=payload)
+    assert r.status_code == 201, r.text
+
+    usuario = db_session.query(Usuario).filter(Usuario.email == payload["email"]).first()
+    assert usuario is not None
+    assert usuario.rol == "cliente"
+
+    pasajero = (
+        db_session.query(Pasajero)
+        .filter(Pasajero.id_usuario == usuario.id_usuario)
+        .first()
+    )
+    assert pasajero is not None, "El Pasajero vinculado al Usuario debe existir"
+    assert pasajero.nombres == payload["nombres"]
+    assert pasajero.apellido_paterno == payload["apellido_paterno"]
+    assert pasajero.apellido_materno == payload["apellido_materno"]
+    assert pasajero.numero_documento == payload["numero_documento"]
+    assert pasajero.fecha_nacimiento is None
+    print(f"  register atómico OK: Usuario#{usuario.id_usuario} -> Pasajero#{pasajero.id_pasajero}")
+
+
+def test_register_tipo_documento_inexistente_devuelve_422(client: TestClient):
+    """Si el `tipo_documento` no está en el catálogo, el registro
+    debe rechazarse con 422 (y NO dejar un Usuario huérfano)."""
+    payload = {
+        "nombres": "Sin",
+        "apellido_paterno": "Doc",
+        "apellido_materno": "Raro",
+        "tipo_documento": "PASAPORTE_EXTRANJERO",
+        "numero_documento": "99999999",
+        "telefono": "999999999",
+        "email": "sin.doc@example.com",
+        "contrasena": "MiPassword123!",
+    }
+    r = client.post("/v1/auth/register", json=payload)
+    assert r.status_code == 422, r.text
+    print("  register 422 con tipo_documento inexistente")
 
 
 def test_login_exitoso_devuelve_jwt(client: TestClient):
     """RF-02: Login con credenciales válidas devuelve JWT."""
     client.post(
         "/v1/auth/register",
-        json={"email": "login@x.com", "password": "MiPassword123!"},
+        json={
+            "nombres": "Login",
+            "apellido_paterno": "User",
+            "apellido_materno": "Test",
+            "tipo_documento": "DNI",
+            "numero_documento": "33333333",
+            "telefono": "933333333",
+            "email": "login@x.com",
+            "contrasena": "MiPassword123!",
+        },
     )
     r = client.post(
         "/v1/auth/login",
@@ -315,7 +439,16 @@ def test_login_exitoso_devuelve_jwt(client: TestClient):
 def test_login_password_incorrecta_devuelve_401(client: TestClient):
     client.post(
         "/v1/auth/register",
-        json={"email": "user@x.com", "password": "Correcta123!"},
+        json={
+            "nombres": "User",
+            "apellido_paterno": "Test",
+            "apellido_materno": "Pass",
+            "tipo_documento": "DNI",
+            "numero_documento": "44444444",
+            "telefono": "944444444",
+            "email": "user@x.com",
+            "contrasena": "Correcta123!",
+        },
     )
     r = client.post(
         "/v1/auth/login",
@@ -339,7 +472,16 @@ def test_me_con_jwt_valido(client: TestClient):
     """El endpoint /me devuelve el usuario dueño del token."""
     client.post(
         "/v1/auth/register",
-        json={"email": "profile@x.com", "password": "MiPassword123!"},
+        json={
+            "nombres": "Profile",
+            "apellido_paterno": "User",
+            "apellido_materno": "Me",
+            "tipo_documento": "DNI",
+            "numero_documento": "55555555",
+            "telefono": "955555555",
+            "email": "profile@x.com",
+            "contrasena": "MiPassword123!",
+        },
     )
     login = client.post(
         "/v1/auth/login",
@@ -353,6 +495,99 @@ def test_me_con_jwt_valido(client: TestClient):
     assert r.status_code == 200
     assert r.json()["email"] == "profile@x.com"
     print("  /me OK con JWT válido")
+
+
+def test_login_devuelve_nombres_y_apellido_paterno(client: TestClient):
+    """El /login debe enriquecer `usuario` con los datos del pasajero
+    vinculado (nombres + apellido_paterno)."""
+    r = client.post(
+        "/v1/auth/register",
+        json={
+            "nombres": "Lucas",
+            "apellido_paterno": "Andres",
+            "apellido_materno": "Perez",
+            "tipo_documento": "DNI",
+            "numero_documento": "66666666",
+            "telefono": "966666666",
+            "email": "lucas.andres@example.com",
+            "contrasena": "MiPassword123!",
+        },
+    )
+    assert r.status_code == 201, r.text
+    register_body = r.json()
+    assert register_body["usuario"]["nombres"] == "Lucas"
+    assert register_body["usuario"]["apellido_paterno"] == "Andres"
+
+    login = client.post(
+        "/v1/auth/login",
+        json={"email": "lucas.andres@example.com", "password": "MiPassword123!"},
+    )
+    assert login.status_code == 200, login.text
+    usuario = login.json()["usuario"]
+    assert usuario["nombres"] == "Lucas"
+    assert usuario["apellido_paterno"] == "Andres"
+    print("  /login enriquece usuario con nombres y apellido_paterno")
+
+
+def test_me_devuelve_nombres_y_apellido_paterno(client: TestClient):
+    """El /me debe enriquecer el objeto devuelto con los datos del
+    pasajero vinculado."""
+    client.post(
+        "/v1/auth/register",
+        json={
+            "nombres": "Maria",
+            "apellido_paterno": "Gomez",
+            "apellido_materno": "Lopez",
+            "tipo_documento": "DNI",
+            "numero_documento": "77777777",
+            "telefono": "977777777",
+            "email": "maria.gomez@example.com",
+            "contrasena": "MiPassword123!",
+        },
+    )
+    login = client.post(
+        "/v1/auth/login",
+        json={"email": "maria.gomez@example.com", "password": "MiPassword123!"},
+    )
+    token = login.json()["access_token"]
+    r = client.get(
+        "/v1/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["nombres"] == "Maria"
+    assert body["apellido_paterno"] == "Gomez"
+    print("  /me enriquece respuesta con nombres y apellido_paterno")
+
+
+def test_login_sin_pasajero_devuelve_nombres_null(client: TestClient, db_session: Session):
+    """Si el `Usuario` no tiene `Pasajero` vinculado (caso admin), los
+    campos `nombres` y `apellido_paterno` deben viajar como `None`."""
+    # Creamos manualmente un Usuario sin Pasajero (simula admin_agencia).
+    from app.core.security import hash_password
+
+    admin = Usuario(
+        email="admin@agencia.com",
+        password_hash=hash_password("AdminPass123!"),
+        telefono=None,
+        rol="admin_agencia",
+        id_agencia=None,
+        activo=True,
+    )
+    db_session.add(admin)
+    db_session.commit()
+
+    r = client.post(
+        "/v1/auth/login",
+        json={"email": "admin@agencia.com", "password": "AdminPass123!"},
+    )
+    assert r.status_code == 200, r.text
+    usuario = r.json()["usuario"]
+    assert usuario["rol"] == "admin_agencia"
+    assert usuario["nombres"] is None
+    assert usuario["apellido_paterno"] is None
+    print("  /login sin Pasajero -> nombres=None, apellido_paterno=None")
 
 
 def test_me_sin_token_devuelve_401(client: TestClient):
