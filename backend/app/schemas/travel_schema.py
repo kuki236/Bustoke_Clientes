@@ -156,6 +156,13 @@ class ViajeBusquedaResponse(BaseModel):
         ge=0,
         description="RF-05: cupos disponibles en tiempo real",
     )
+    tipos_asiento: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Categorías de servicio de los asientos físicos del bus "
+            "(ej: ['normal', 'vip'])"
+        ),
+    )
 
 
 # ============================================================================

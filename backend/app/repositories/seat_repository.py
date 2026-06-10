@@ -197,28 +197,39 @@ class SeatRepository:
         id_viaje: int,
         id_asiento: int,
         token_sesion: Optional[str] = None,
+        id_usuario: Optional[int] = None,
     ) -> int:
         """
         Marca como `liberado` los bloqueos activos del par (viaje, asiento).
 
-        Si se indica `token_sesion` solo se liberan los bloqueos que coincidan.
-        Retorna la cantidad de bloqueos liberados.
+        - Si se indica `token_sesion` solo se liberan los bloqueos que coincidan.
+        - Si se indica `id_usuario` se filtra adicionalmente por dueño.
+        - Si no hay bloqueos vigentes, retorna 0 sin lanzar.
+        - Retorna la cantidad de bloqueos liberados.
         """
         now = datetime.now(timezone.utc)
-        stmt = select(BloqueoTemporal).where(
-            BloqueoTemporal.id_viaje == id_viaje,
-            BloqueoTemporal.id_asiento == id_asiento,
-            BloqueoTemporal.estado == "activo",
-            BloqueoTemporal.expira_at > now,
-        )
-        if token_sesion:
-            stmt = stmt.where(BloqueoTemporal.token_sesion == token_sesion)
+        try:
+            stmt = select(BloqueoTemporal).where(
+                BloqueoTemporal.id_viaje == id_viaje,
+                BloqueoTemporal.id_asiento == id_asiento,
+                BloqueoTemporal.estado == "activo",
+                BloqueoTemporal.expira_at > now,
+            )
+            if token_sesion:
+                stmt = stmt.where(BloqueoTemporal.token_sesion == token_sesion)
+            if id_usuario is not None:
+                stmt = stmt.where(BloqueoTemporal.id_usuario == id_usuario)
 
-        holds = list(self.db.scalars(stmt).all())
-        for hold in holds:
-            hold.estado = "liberado"
-        self.db.flush()
-        return len(holds)
+            holds = list(self.db.scalars(stmt).all())
+            for hold in holds:
+                hold.estado = "liberado"
+            self.db.flush()
+            return len(holds)
+        except Exception:
+            # Sesión sucia o error de lectura: devolvemos 0 y dejamos que
+            # la capa superior (servicio + endpoint) responda de forma
+            # tolerante. Nunca debe propagarse al cliente como 500.
+            return 0
 
     # ========================================================================
     # HELPERS

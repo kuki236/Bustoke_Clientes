@@ -170,7 +170,7 @@ function validateCheckoutForm({ buyer, passengers }) {
   return errors
 }
 
-function SelectField({ label, value, onChange, options, id }) {
+function SelectField({ label, value, onChange, options, id, disabled = false }) {
   return (
     <div className="flex flex-col gap-1.5">
       <label
@@ -184,7 +184,10 @@ function SelectField({ label, value, onChange, options, id }) {
           id={id}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full appearance-none px-3 py-2.5 pr-9 border border-neutral-400 rounded-lg text-sm text-neutral-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          disabled={disabled}
+          className={`w-full appearance-none px-3 py-2.5 pr-9 border border-neutral-400 rounded-lg text-sm text-neutral-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+            disabled ? 'bg-neutral-100 text-neutral-500 cursor-not-allowed' : ''
+          }`}
         >
           {options.map((opt) => (
             <option key={opt} value={opt}>
@@ -210,7 +213,7 @@ function SelectField({ label, value, onChange, options, id }) {
   )
 }
 
-function InputField({ label, value, onChange, placeholder, type = 'text', id }) {
+function InputField({ label, value, onChange, placeholder, type = 'text', id, disabled = false }) {
   return (
     <div className="flex flex-col gap-1.5">
       <label
@@ -225,83 +228,175 @@ function InputField({ label, value, onChange, placeholder, type = 'text', id }) 
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 py-2.5 border border-neutral-400 rounded-lg text-sm text-neutral-900 placeholder:text-neutral-400 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        disabled={disabled}
+        className={`w-full px-3 py-2.5 border border-neutral-400 rounded-lg text-sm text-neutral-900 placeholder:text-neutral-400 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+          disabled ? 'bg-neutral-100 text-neutral-500 cursor-not-allowed' : ''
+        }`}
       />
     </div>
   )
 }
 
-function PassengerBlock({ index, passenger, onChange }) {
+function PassengerAccordionItem({
+  index,
+  passenger,
+  expanded,
+  onToggleExpand,
+  onChange,
+}) {
   const update = (field, value) => {
     onChange(index, { ...passenger, [field]: value })
   }
+  const isComplete =
+    passenger.docNumber?.trim() &&
+    passenger.names?.trim() &&
+    passenger.paternalSurname?.trim() &&
+    passenger.maternalSurname?.trim() &&
+    passenger.fechaNacimiento?.trim()
 
   return (
-    <section className="flex flex-col gap-4">
-      <h3 className="text-base font-semibold text-neutral-900">
-        Pasajero {index + 1} - Asiento {passenger.seat}
-      </h3>
-      <div className="grid sm:grid-cols-2 gap-4">
-        <SelectField
-          id={`pax-${index}-docType`}
-          label="Tipo de Documento"
-          value={passenger.docType}
-          onChange={(v) => update('docType', v)}
-          options={DOC_TYPES}
-        />
-        <InputField
-          id={`pax-${index}-docNumber`}
-          label="Número de Documento"
-          value={passenger.docNumber}
-          onChange={(v) => update('docNumber', v)}
-          placeholder="Ingresa el número"
-        />
+    <section
+      className={`flex flex-col gap-4 ${
+        index > 0 ? 'pt-6 border-t border-neutral-200' : ''
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onToggleExpand}
+        aria-expanded={expanded}
+        aria-controls={`pax-panel-${index}`}
+        className="w-full flex items-center justify-between gap-3 text-left"
+      >
+        <h3 className="text-base font-semibold text-neutral-900">
+          Pasajero {index + 1} — Asiento {passenger.seat}
+          {!expanded && !isComplete && (
+            <span className="text-neutral-500 font-normal text-sm">
+              {' '}
+              (Completar datos)
+            </span>
+          )}
+        </h3>
+        <span
+          className={`text-neutral-500 text-sm transition-transform duration-200 ${
+            expanded ? 'rotate-180' : ''
+          }`}
+          aria-hidden="true"
+        >
+          ▼
+        </span>
+      </button>
+
+      <div
+        id={`pax-panel-${index}`}
+        className={`grid transition-all duration-300 ease-in-out ${
+          expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+        }`}
+      >
+        <div className="overflow-hidden flex flex-col gap-4">
+          <div className="grid sm:grid-cols-2 gap-4">
+            <SelectField
+              id={`pax-${index}-docType`}
+              label="Tipo de Documento"
+              value={passenger.docType}
+              onChange={(v) => update('docType', v)}
+              options={DOC_TYPES}
+            />
+            <InputField
+              id={`pax-${index}-docNumber`}
+              label="Número de Documento"
+              value={passenger.docNumber}
+              onChange={(v) => update('docNumber', v)}
+              placeholder="Ej. 74872562"
+            />
+          </div>
+          <InputField
+            id={`pax-${index}-names`}
+            label="Nombres"
+            value={passenger.names}
+            onChange={(v) => update('names', v)}
+            placeholder="Ej. Juan Carlos"
+          />
+          <div className="grid sm:grid-cols-2 gap-4">
+            <InputField
+              id={`pax-${index}-paternal`}
+              label="Apellido Paterno"
+              value={passenger.paternalSurname}
+              onChange={(v) => update('paternalSurname', v)}
+              placeholder="Ej. Pérez"
+            />
+            <InputField
+              id={`pax-${index}-maternal`}
+              label="Apellido Materno"
+              value={passenger.maternalSurname}
+              onChange={(v) => update('maternalSurname', v)}
+              placeholder="Ej. Mendoza"
+            />
+          </div>
+          <InputField
+            id={`pax-${index}-birth`}
+            label="Fecha de Nacimiento"
+            type="date"
+            value={passenger.fechaNacimiento}
+            onChange={(v) => update('fechaNacimiento', v)}
+            max="2010-12-31"
+          />
+        </div>
       </div>
-      <InputField
-        id={`pax-${index}-names`}
-        label="Nombres"
-        value={passenger.names}
-        onChange={(v) => update('names', v)}
-        placeholder="Ej. Juan Carlos"
-      />
-      <div className="grid sm:grid-cols-2 gap-4">
-        <InputField
-          id={`pax-${index}-paternal`}
-          label="Apellido Paterno"
-          value={passenger.paternalSurname}
-          onChange={(v) => update('paternalSurname', v)}
-          placeholder="Apellido paterno"
-        />
-        <InputField
-          id={`pax-${index}-maternal`}
-          label="Apellido Materno"
-          value={passenger.maternalSurname}
-          onChange={(v) => update('maternalSurname', v)}
-          placeholder="Apellido materno"
-        />
-      </div>
-      <InputField
-        id={`pax-${index}-birth`}
-        label="Fecha de Nacimiento"
-        type="date"
-        value={passenger.fechaNacimiento}
-        onChange={(v) => update('fechaNacimiento', v)}
-        max="2010-12-31"
-      />
     </section>
   )
 }
 
-function BuyerBlock({ buyer, onChange }) {
+function BuyerBlock({ buyer, onChange, buyerIsPax1, onToggleBuyerIsPax1 }) {
   const update = (field, value) => {
     onChange({ ...buyer, [field]: value })
   }
+  const lockFromPax1 = buyerIsPax1
 
   return (
     <section className="flex flex-col gap-4">
       <h3 className="text-base font-semibold text-neutral-900">
         Datos del comprador
       </h3>
+
+      <label
+        htmlFor="buyer-is-pax1"
+        className="flex items-center gap-2 text-sm text-neutral-700 cursor-pointer select-none"
+      >
+        <span className="relative shrink-0">
+          <input
+            id="buyer-is-pax1"
+            type="checkbox"
+            checked={buyerIsPax1}
+            onChange={(e) => onToggleBuyerIsPax1(e.target.checked)}
+            className="peer sr-only"
+          />
+          <span
+            className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+              buyerIsPax1
+                ? 'bg-blue-600 border-blue-600'
+                : 'bg-white border-neutral-400'
+            }`}
+            aria-hidden="true"
+          >
+            {buyerIsPax1 && (
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-3.5 h-3.5 text-white"
+              >
+                <path d="M5 12l5 5L20 7" />
+              </svg>
+            )}
+          </span>
+        </span>
+        El comprador es el Pasajero 1
+      </label>
+
       <div className="grid sm:grid-cols-2 gap-4">
         <SelectField
           id="buyer-docType"
@@ -309,13 +404,15 @@ function BuyerBlock({ buyer, onChange }) {
           value={buyer.docType}
           onChange={(v) => update('docType', v)}
           options={DOC_TYPES}
+          {...(lockFromPax1 ? { disabled: true } : {})}
         />
         <InputField
           id="buyer-docNumber"
           label="Número de Documento"
           value={buyer.docNumber}
           onChange={(v) => update('docNumber', v)}
-          placeholder="Ingresa el número"
+          placeholder="Ej. 74872562"
+          disabled={lockFromPax1}
         />
       </div>
       <InputField
@@ -324,6 +421,7 @@ function BuyerBlock({ buyer, onChange }) {
         value={buyer.names}
         onChange={(v) => update('names', v)}
         placeholder="Ej. Juan Carlos"
+        disabled={lockFromPax1}
       />
       <div className="grid sm:grid-cols-2 gap-4">
         <InputField
@@ -331,14 +429,16 @@ function BuyerBlock({ buyer, onChange }) {
           label="Apellido Paterno"
           value={buyer.paternalSurname}
           onChange={(v) => update('paternalSurname', v)}
-          placeholder="Apellido paterno"
+          placeholder="Ej. Pérez"
+          disabled={lockFromPax1}
         />
         <InputField
           id="buyer-maternal"
           label="Apellido Materno"
           value={buyer.maternalSurname}
           onChange={(v) => update('maternalSurname', v)}
-          placeholder="Apellido materno"
+          placeholder="Ej. Mendoza"
+          disabled={lockFromPax1}
         />
       </div>
       <InputField
@@ -404,23 +504,19 @@ function SummaryCard({ trip, selectedSeats, total, date }) {
     <article className="bg-white rounded-2xl shadow-card p-6 flex flex-col gap-4">
       <h2 className="text-lg font-bold text-neutral-900">Resumen de Compra</h2>
 
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm text-neutral-600">Ruta</p>
-          <p className="text-base font-semibold text-neutral-900 leading-tight">
-            {trip.origin} a {trip.destination}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5 justify-end shrink-0 max-w-[50%]">
-          {displaySeats.map((seat) => (
-            <span
-              key={seat}
-              className="inline-flex items-center justify-center min-w-8 h-7 px-2 text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-100 rounded-md"
-            >
-              {seat}
+      <div className="flex flex-col gap-2">
+        <p className="text-sm text-neutral-600">Ruta</p>
+        <p className="text-base font-semibold text-neutral-900 leading-tight">
+          {trip.origin} a {trip.destination}
+        </p>
+        {displaySeats.length > 0 && (
+          <p className="text-sm text-neutral-700 break-words">
+            <span className="text-neutral-500">Asientos: </span>
+            <span className="font-medium text-neutral-900">
+              {displaySeats.join(', ')}
             </span>
-          ))}
-        </div>
+          </p>
+        )}
       </div>
 
       <div className="h-px bg-neutral-200" />
@@ -505,6 +601,10 @@ function CheckoutForms({
   buyer,
   onChangePassenger,
   onChangeBuyer,
+  expandedPax,
+  onToggleExpandPax,
+  buyerIsPax1,
+  onToggleBuyerIsPax1,
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -512,30 +612,47 @@ function CheckoutForms({
         <h2 className="text-lg font-bold text-neutral-900">
           Datos de los pasajeros
         </h2>
-        <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-6">
           {passengers.map((pax, i) => (
-            <div
+            <PassengerAccordionItem
               key={`${pax.seat}-${i}`}
-              className={
-                i > 0
-                  ? 'pt-8 border-t border-neutral-200 flex flex-col gap-4'
-                  : 'flex flex-col gap-4'
-              }
-            >
-              <PassengerBlock
-                index={i}
-                passenger={pax}
-                onChange={onChangePassenger}
-              />
-            </div>
+              index={i}
+              passenger={pax}
+              expanded={expandedPax.includes(i)}
+              onToggleExpand={() => onToggleExpandPax(i)}
+              onChange={onChangePassenger}
+            />
           ))}
         </div>
       </article>
 
       <article className="bg-white rounded-2xl shadow-card p-6 flex flex-col gap-6">
-        <BuyerBlock buyer={buyer} onChange={onChangeBuyer} />
+        <BuyerBlock
+          buyer={buyer}
+          onChange={onChangeBuyer}
+          buyerIsPax1={buyerIsPax1}
+          onToggleBuyerIsPax1={onToggleBuyerIsPax1}
+        />
       </article>
     </div>
+  )
+}
+
+function PaymentMethodsCard({ paymentMethod, onSelectPayment }) {
+  return (
+    <article className="bg-white rounded-2xl shadow-card p-6 flex flex-col gap-4">
+      <h2 className="text-lg font-bold text-neutral-900">Métodos de pago</h2>
+      <div className="flex flex-col gap-3">
+        {PAYMENT_METHODS.map((option) => (
+          <PaymentOption
+            key={option.id}
+            option={option}
+            selected={paymentMethod === option.id}
+            onSelect={onSelectPayment}
+          />
+        ))}
+      </div>
+    </article>
   )
 }
 
@@ -551,26 +668,19 @@ function PaymentPanel({
 }) {
   return (
     <div className="flex flex-col gap-6">
-      <article className="bg-white rounded-2xl shadow-card p-6 flex flex-col gap-4">
-        <h2 className="text-lg font-bold text-neutral-900">Métodos de pago</h2>
-        <div className="flex flex-col gap-3">
-          {PAYMENT_METHODS.map((option) => (
-            <PaymentOption
-              key={option.id}
-              option={option}
-              selected={paymentMethod === option.id}
-              onSelect={onSelectPayment}
-            />
-          ))}
-        </div>
-      </article>
+      <PaymentMethodsCard
+        paymentMethod={paymentMethod}
+        onSelectPayment={onSelectPayment}
+      />
 
       <div className="flex flex-col gap-4">
-        <TermsCheckbox
-          id="terms-desktop"
-          checked={acceptedTerms}
-          onChange={onToggleTerms}
-        />
+        <div className="px-1">
+          <TermsCheckbox
+            id="terms-desktop"
+            checked={acceptedTerms}
+            onChange={onToggleTerms}
+          />
+        </div>
         {payError && <Alert variant="error">{payError}</Alert>}
         <button
           type="button"
@@ -671,6 +781,33 @@ export default function CheckoutPage({
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [payError, setPayError] = useState(null)
+  const [expandedPax, setExpandedPax] = useState(() =>
+    selectedSeats.length > 0 ? [0] : [],
+  )
+  const [buyerIsPax1, setBuyerIsPax1] = useState(false)
+
+  const handleToggleExpandPax = useCallback((index) => {
+    setExpandedPax((prev) =>
+      prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index],
+    )
+  }, [])
+
+  const handleToggleBuyerIsPax1 = useCallback(
+    (checked) => {
+      setBuyerIsPax1(checked)
+      if (checked && passengers[0]) {
+        setBuyer((prev) => ({
+          ...prev,
+          docType: passengers[0].docType || prev.docType,
+          docNumber: passengers[0].docNumber || '',
+          names: passengers[0].names || '',
+          paternalSurname: passengers[0].paternalSurname || '',
+          maternalSurname: passengers[0].maternalSurname || '',
+        }))
+      }
+    },
+    [passengers],
+  )
 
   const handleBack = useCallback(() => {
     if (typeof onBack === 'function') {
@@ -846,6 +983,10 @@ export default function CheckoutPage({
               buyer={buyer}
               onChangePassenger={handleChangePassenger}
               onChangeBuyer={setBuyer}
+              expandedPax={expandedPax}
+              onToggleExpandPax={handleToggleExpandPax}
+              buyerIsPax1={buyerIsPax1}
+              onToggleBuyerIsPax1={handleToggleBuyerIsPax1}
             />
 
             <aside className="flex flex-col gap-6">
@@ -870,7 +1011,7 @@ export default function CheckoutPage({
         </div>
       </div>
 
-      <div className="block md:hidden pb-40">
+      <div className="block md:hidden pb-16">
         <header className="bg-blue-600 text-white p-5 flex items-center gap-4">
           <button
             type="button"
@@ -894,33 +1035,32 @@ export default function CheckoutPage({
           />
         </div>
 
-        <main className="flex flex-col gap-4 p-4">
+        <main className="flex flex-col gap-4 p-4 pb-28">
           <article className="bg-white rounded-2xl shadow-card p-5 flex flex-col gap-6">
             <h2 className="text-base font-bold text-neutral-900">
               Datos de los pasajeros
             </h2>
             <div className="flex flex-col gap-6">
               {passengers.map((pax, i) => (
-                <div
+                <PassengerAccordionItem
                   key={`${pax.seat}-${i}`}
-                  className={
-                    i > 0
-                      ? 'pt-6 border-t border-neutral-200 flex flex-col gap-4'
-                      : 'flex flex-col gap-4'
-                  }
-                >
-                  <PassengerBlock
-                    index={i}
-                    passenger={pax}
-                    onChange={handleChangePassenger}
-                  />
-                </div>
+                  index={i}
+                  passenger={pax}
+                  expanded={expandedPax.includes(i)}
+                  onToggleExpand={() => handleToggleExpandPax(i)}
+                  onChange={handleChangePassenger}
+                />
               ))}
             </div>
           </article>
 
           <article className="bg-white rounded-2xl shadow-card p-5 flex flex-col gap-6">
-            <BuyerBlock buyer={buyer} onChange={setBuyer} />
+            <BuyerBlock
+              buyer={buyer}
+              onChange={setBuyer}
+              buyerIsPax1={buyerIsPax1}
+              onToggleBuyerIsPax1={handleToggleBuyerIsPax1}
+            />
           </article>
 
           <article className="bg-white rounded-2xl shadow-card p-5 flex flex-col gap-4">
@@ -937,15 +1077,17 @@ export default function CheckoutPage({
                 />
               ))}
             </div>
-            <div className="pt-2">
-              <TermsCheckbox
-                id="terms-mobile"
-                checked={acceptedTerms}
-                onChange={setAcceptedTerms}
-              />
-            </div>
-            {payError && <Alert variant="error">{payError}</Alert>}
           </article>
+
+          <div className="pt-2">
+            <TermsCheckbox
+              id="terms-mobile"
+              checked={acceptedTerms}
+              onChange={setAcceptedTerms}
+            />
+          </div>
+
+          {payError && <Alert variant="error">{payError}</Alert>}
         </main>
 
         <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-neutral-200 px-4 py-3 z-40 shadow-lg">

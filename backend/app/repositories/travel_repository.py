@@ -14,7 +14,7 @@ Soporta filtros dinámicos opcionales:
 from datetime import date, datetime, timezone
 from typing import Iterable, List, Optional, Sequence
 
-from sqlalchemy import Integer, cast, func, select
+from sqlalchemy import Integer, String, cast, func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import (
@@ -294,3 +294,24 @@ class TravelRepository:
         """Cuenta el total de asientos físicos de un bus."""
         stmt = select(func.count(Asiento.id_asiento)).where(Asiento.id_bus == id_bus)
         return int(self.db.execute(stmt).scalar_one() or 0)
+
+    def list_tipos_asiento_by_bus(self, id_bus: int) -> List[str]:
+        """
+        Devuelve los `tipo_servicio` (normal / vip) **distintos** que
+        ofrecen los asientos físicos del bus indicado.
+
+        Se normaliza a minúsculas y se preserva un orden estable
+        (alfabético) para que el payload del endpoint `GET /v1/travels/search`
+        sea determinista y fácil de consumir desde el frontend.
+
+        Si el bus no tiene asientos registrados, devuelve una lista
+        vacía (no rompe la respuesta).
+        """
+        tipo_servicio_text = cast(Asiento.tipo_servicio, String)
+        stmt = (
+            select(func.lower(tipo_servicio_text).label("tipo_servicio"))
+            .where(Asiento.id_bus == id_bus)
+            .distinct()
+            .order_by("tipo_servicio")
+        )
+        return [row[0] for row in self.db.execute(stmt).all() if row[0]]

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Star, ArrowUp, Bath } from 'lucide-react'
+import { ArrowLeft, Star, Bath, Layers } from 'lucide-react'
 import Navbar from './Navbar'
 import BottomNav from './BottomNav'
 import Alert from './Alert'
@@ -10,6 +10,7 @@ import {
   releaseSeatRequest,
   SEAT_STATUS,
 } from '../api/seats'
+import { useAuth } from '../context/AuthContext'
 
 const FLOOR_LABELS = {
   1: 'Primer Piso',
@@ -76,7 +77,7 @@ function resolveFloorTitle(floor, seats) {
 }
 
 const SEAT_BASE_CLASSES =
-  'absolute w-10 h-10 text-xs font-semibold rounded-lg flex flex-col items-center justify-center transition-all'
+  'w-10 h-10 text-xs font-semibold rounded-lg flex flex-col items-center justify-center transition-all'
 
 function getSeatButtonClasses({ selected, estado, busy }) {
   if (selected) {
@@ -89,12 +90,26 @@ function getSeatButtonClasses({ selected, estado, busy }) {
     return 'bg-neutral-200 border-2 border-neutral-200 text-neutral-400 cursor-not-allowed'
   }
   if (busy) {
-    return 'bg-white border-2 border-blue-600 text-blue-600 opacity-60 cursor-wait'
+    return 'bg-white border-2 border-slate-200 text-slate-700 opacity-60 cursor-wait'
   }
-  return 'bg-white border-2 border-blue-600 text-blue-600 hover:bg-blue-50'
+  return 'bg-white border-2 border-slate-200 text-slate-700 hover:border-blue-300 hover:text-blue-600'
 }
 
-function SeatButton({ label, isVip, selected, estado, busy, onToggle, style }) {
+function getStarClasses({ isVip, selected, estado }) {
+  if (!isVip) return null
+  if (estado === SEAT_STATUS.OCCUPIED) {
+    return 'fill-white text-white'
+  }
+  if (selected) {
+    return 'fill-white text-white'
+  }
+  if (estado === SEAT_STATUS.HELD) {
+    return 'fill-orange-300 text-orange-300'
+  }
+  return 'fill-orange-300 text-orange-300'
+}
+
+function SeatButton({ label, isVip, selected, estado, busy, onToggle }) {
   const isOccupied = estado === SEAT_STATUS.OCCUPIED
   const isHeldByOther = estado === SEAT_STATUS.HELD && !selected
   const disabled = isOccupied || isHeldByOther || busy
@@ -105,6 +120,7 @@ function SeatButton({ label, isVip, selected, estado, busy, onToggle, style }) {
       : selected
         ? `Asiento ${label} seleccionado`
         : `Asiento ${label} libre`
+  const starClasses = getStarClasses({ isVip, selected, estado })
 
   return (
     <button
@@ -114,17 +130,13 @@ function SeatButton({ label, isVip, selected, estado, busy, onToggle, style }) {
       aria-pressed={selected}
       aria-disabled={disabled}
       aria-label={ariaLabel}
-      style={style}
       className={`${SEAT_BASE_CLASSES} ${getSeatButtonClasses({ selected, estado, busy })}`}
     >
-      {isVip && !isOccupied && !isHeldByOther && (
+      {starClasses && (
         <Star
-          className={`w-2.5 h-2.5 mb-px ${
-            selected
-              ? 'fill-white text-white'
-              : 'fill-orange-300 text-orange-300'
-          }`}
+          className={`w-2.5 h-2.5 mb-px ${starClasses}`}
           strokeWidth={0}
+          aria-hidden="true"
         />
       )}
       <span>{label}</span>
@@ -132,10 +144,42 @@ function SeatButton({ label, isVip, selected, estado, busy, onToggle, style }) {
   )
 }
 
+function buildSeatRows(seats) {
+  if (!Array.isArray(seats) || seats.length === 0) return []
+  const sorted = [...seats].sort(
+    (a, b) =>
+      (Number(a.coordY) || 0) - (Number(b.coordY) || 0) ||
+      (Number(a.coordX) || 0) - (Number(b.coordX) || 0),
+  )
+  const rows = []
+  let current = []
+  let currentY = null
+  const tolerance = 8
+  for (const seat of sorted) {
+    const y = Number(seat.coordY) || 0
+    if (currentY === null || Math.abs(y - currentY) <= tolerance) {
+      current.push(seat)
+      currentY = currentY === null ? y : (currentY * (current.length - 1) + y) / current.length
+    } else {
+      rows.push(current)
+      current = [seat]
+      currentY = y
+    }
+  }
+  if (current.length > 0) rows.push(current)
+  return rows.map((row) =>
+    [...row].sort((a, b) => (Number(a.coordX) || 0) - (Number(b.coordX) || 0)),
+  )
+}
+
+const AISLE_CELL = (
+  <div aria-hidden="true" className="w-full" key="aisle-cell" />
+)
+
 function BusLayout({ seats, floor, selectedIds, busyIds, onToggle }) {
   if (seats.length === 0) {
     return (
-      <div className="relative w-[340px] h-[560px] bg-white rounded-3xl border border-neutral-200 pt-14 pb-14 px-6 mx-auto shadow-sm overflow-hidden flex items-center justify-center">
+      <div className="relative w-[340px] bg-white rounded-3xl border border-neutral-200 pt-14 pb-14 px-6 mx-auto shadow-sm overflow-hidden flex items-center justify-center min-h-[420px]">
         <p className="text-sm text-neutral-500">
           No hay asientos en este piso.
         </p>
@@ -143,60 +187,94 @@ function BusLayout({ seats, floor, selectedIds, busyIds, onToggle }) {
     )
   }
 
+  const rows = buildSeatRows(seats)
+  const maxRowLength = rows.reduce((acc, r) => Math.max(acc, r.length), 0)
+  const paddedRowLength = Math.max(maxRowLength, 4)
+  const leftCount = Math.floor(paddedRowLength / 2)
+  const rightStart = leftCount + 1
+
   return (
-    <div className="relative w-[340px] h-[560px] bg-white rounded-3xl border border-neutral-200 pt-14 pb-14 px-6 mx-auto shadow-sm overflow-hidden">
+    <div className="relative w-[340px] bg-white rounded-3xl border border-neutral-200 pt-14 pb-14 px-6 mx-auto shadow-sm overflow-hidden">
       <div
-        className="absolute top-4 left-4 text-neutral-400"
-        aria-label="Timón del conductor"
+        className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1 rounded-full bg-neutral-100 text-neutral-500 text-[10px] font-semibold uppercase tracking-wider"
+        aria-label="Frente del bus"
       >
-        <SteeringWheel className="w-6 h-6" aria-hidden="true" />
+        <SteeringWheel className="w-3.5 h-3.5" aria-hidden="true" />
+        <span>Frente / Chofer</span>
       </div>
 
-      <div
-        className="absolute bottom-4 left-4 text-neutral-400"
-        aria-label="Escalera de acceso"
-      >
-        <ArrowUp className="w-6 h-6" aria-hidden="true" />
+      <div className="grid grid-cols-5 gap-y-3 gap-x-2 place-items-center">
+        {rows.map((row, rowIdx) => {
+          const cells = []
+          for (let col = 0; col < paddedRowLength + 1; col++) {
+            if (col === leftCount) {
+              cells.push(
+                <div
+                  key={`aisle-${floor}-${rowIdx}-${col}`}
+                  aria-hidden="true"
+                  className="w-full"
+                />,
+              )
+              continue
+            }
+            const seat = row[col >= rightStart ? col - 1 : col]
+            if (!seat) {
+              cells.push(
+                <span
+                  key={`empty-${floor}-${rowIdx}-${col}`}
+                  aria-hidden="true"
+                  className="w-10 h-10"
+                />,
+              )
+              continue
+            }
+            const label = cleanSeatLabel(seat.numeroAsiento)
+            const isVip = String(seat.tipoServicio || '').toLowerCase() === 'vip'
+            cells.push(
+              <SeatButton
+                key={`${floor}-${seat.idAsiento}`}
+                label={label}
+                isVip={isVip}
+                selected={selectedIds.includes(seat.idAsiento)}
+                estado={seat.estado}
+                busy={busyIds.includes(seat.idAsiento)}
+                onToggle={() => onToggle(seat)}
+              />,
+            )
+          }
+          return cells
+        })}
       </div>
 
-      <div
-        className="absolute bottom-4 right-4 text-neutral-400"
-        aria-label="Baño"
-      >
-        <Bath className="w-6 h-6" aria-hidden="true" />
+      <div className="mt-6 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
+        <div
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-100"
+          aria-label="Escalera de acceso"
+        >
+          <Layers className="w-3.5 h-3.5" aria-hidden="true" />
+          <span>Escalera</span>
+        </div>
+        <div
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-100"
+          aria-label="Baño"
+        >
+          <Bath className="w-3.5 h-3.5" aria-hidden="true" />
+          <span>Baño</span>
+        </div>
       </div>
-
-      {seats.map((seat) => {
-        const label = cleanSeatLabel(seat.numeroAsiento)
-        const isVip = String(seat.tipoServicio || '').toLowerCase() === 'vip'
-        return (
-          <SeatButton
-            key={`${floor}-${seat.idAsiento}`}
-            label={label}
-            isVip={isVip}
-            selected={selectedIds.includes(seat.idAsiento)}
-            estado={seat.estado}
-            busy={busyIds.includes(seat.idAsiento)}
-            onToggle={() => onToggle(seat)}
-            style={{
-              left: `${Number(seat.coordX) || 0}%`,
-              top: `${Number(seat.coordY) || 0}%`,
-              transform: 'translate(-50%, -50%)',
-            }}
-          />
-        )
-      })}
     </div>
   )
 }
 
-function Legend() {
+function Legend({ showBlocked = true }) {
   const items = [
     { label: 'Libre', swatch: 'bg-white border-blue-600' },
     { label: 'Ocupado', swatch: 'bg-red-600 border-red-600' },
-    { label: 'Bloqueado', swatch: 'bg-neutral-200 border-neutral-200' },
-    { label: 'Seleccionado', swatch: 'bg-blue-600 border-blue-600' },
   ]
+  if (showBlocked) {
+    items.push({ label: 'Bloqueado', swatch: 'bg-neutral-200 border-neutral-200' })
+  }
+  items.push({ label: 'Seleccionado', swatch: 'bg-blue-600 border-blue-600' })
   return (
     <div className="flex items-center justify-center gap-6 py-4 text-xs text-neutral-600 flex-wrap">
       {items.map(({ label, swatch }) => (
@@ -304,6 +382,8 @@ export default function SeatSelectionPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { user } = useAuth()
+  const currentUserId = user?.id ?? user?.id_usuario ?? user?.idUsuario ?? null
 
   const idViaje = Number(idViajeParam)
   const validId = Number.isInteger(idViaje) && idViaje > 0
@@ -393,11 +473,15 @@ export default function SeatSelectionPage() {
       const holds = selectedIds
       if (holds.length === 0) return
       holds.forEach((idAsiento) => {
-        releaseSeatRequest({
+        const body = {
           idViaje,
           idAsiento,
           tokenSesion: sessionToken,
-        }).catch(() => {})
+        }
+        if (currentUserId) body.idUsuario = currentUserId
+        releaseSeatRequest(body).catch((err) => {
+          console.warn('[SeatSelection] unmount release failed', err)
+        })
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -430,6 +514,13 @@ export default function SeatSelectionPage() {
     () => selectedSeats.map((seat) => seat.numero_asiento),
     [selectedSeats],
   )
+
+  const hasManualBlock = useMemo(() => {
+    if (!seatMap) return false
+    return (seatMap.asientos || []).some(
+      (seat) => seat?.bloqueado_manual === true,
+    )
+  }, [seatMap])
 
   const handleBack = useCallback(() => {
     navigate(-1)
@@ -465,13 +556,15 @@ export default function SeatSelectionPage() {
 
       if (isSelected) {
         setBusyIds((prev) => [...prev, seat.idAsiento])
-        setSelectedIds((prev) => prev.filter((id) => id !== seat.idAsiento))
         try {
-          await releaseSeatRequest({
+          const body = {
             idViaje,
             idAsiento: seat.idAsiento,
             tokenSesion: sessionToken,
-          })
+          }
+          if (currentUserId) body.idUsuario = currentUserId
+          await releaseSeatRequest(body)
+          setSelectedIds((prev) => prev.filter((id) => id !== seat.idAsiento))
           setSeatMap((prev) => {
             if (!prev) return prev
             return {
@@ -484,11 +577,7 @@ export default function SeatSelectionPage() {
             }
           })
         } catch (err) {
-          setSelectedIds((prev) =>
-            prev.includes(seat.idAsiento)
-              ? prev
-              : [...prev, seat.idAsiento],
-          )
+          console.error('[SeatSelection] release failed', err)
           setActionError(
             err?.message ||
               'No pudimos liberar el bloqueo del asiento. Intenta nuevamente.',
@@ -695,7 +784,7 @@ export default function SeatSelectionPage() {
             </div>
           )}
 
-          {!loading && <Legend />}
+          {!loading && <Legend showBlocked={hasManualBlock} />}
 
           <div className="mt-4">
             <CheckoutBar
@@ -748,7 +837,7 @@ export default function SeatSelectionPage() {
             />
           )}
 
-          {!loading && <Legend />}
+          {!loading && <Legend showBlocked={hasManualBlock} />}
 
           <CheckoutBar
             selectedLabels={selectedLabels}

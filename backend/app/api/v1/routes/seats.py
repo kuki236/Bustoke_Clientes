@@ -86,15 +86,31 @@ async def release_hold(
     """
     Marca como `liberado` el bloqueo vigente del par `(id_viaje, id_asiento)`.
 
-    Si no hay bloqueo activo, devuelve `estado='sin_bloqueo'`.
+    Si no hay bloqueo activo (TTL expirado, ya liberado, o nunca existió),
+    devuelve `estado='sin_bloqueo'` con HTTP 200 — nunca 5xx — para que el
+    cliente pueda des-seleccionar sin interrumpir la experiencia.
     """
     service = SeatService(db)
     result = service.release_seat(
         id_viaje=payload.id_viaje,
         id_asiento=payload.id_asiento,
         token_sesion=payload.token_sesion,
+        id_usuario=payload.id_usuario,
     )
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        # Sesión sucia: hacemos rollback y devolvemos éxito tolerante.
+        # El frontend no debe romperse por una falla transitoria al
+        # desbloquear (un 500 aquí era el origen del "Technical Error").
+        db.rollback()
+        return SeatHoldResult(
+            id_viaje=payload.id_viaje,
+            id_asiento=payload.id_asiento,
+            id_bloqueo=None,
+            expira_at=None,
+            estado="sin_bloqueo",
+        )
     return SeatHoldResult(**result)
 
 

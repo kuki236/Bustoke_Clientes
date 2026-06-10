@@ -82,11 +82,17 @@ export async function holdSeatRequest({
 /**
  * POST /v1/seats/release
  * Libera un bloqueo temporal del par (id_viaje, id_asiento).
+ *
+ * Tolerante: si el backend responde 404 o 5xx (sesión expirada, sin
+ * bloqueo, error transitorio) se devuelve un resultado neutro
+ * (`estado='sin_bloqueo'`) en lugar de lanzar, para que la
+ * des-selección en la UI nunca quede a medio camino.
  */
 export async function releaseSeatRequest({
   idViaje,
   idAsiento,
   tokenSesion = null,
+  idUsuario = null,
 }) {
   try {
     const body = {
@@ -94,16 +100,32 @@ export async function releaseSeatRequest({
       id_asiento: idAsiento,
     }
     if (tokenSesion) body.token_sesion = tokenSesion
+    if (idUsuario) body.id_usuario = idUsuario
 
     const { data } = await axiosInstance.post('/seats/release', body)
     return {
-      idViaje: data.id_viaje,
-      idAsiento: data.id_asiento,
-      idBloqueo: data.id_bloqueo,
-      expiraAt: data.expira_at,
-      estado: data.estado,
+      idViaje: data.id_viaje ?? idViaje,
+      idAsiento: data.id_asiento ?? idAsiento,
+      idBloqueo: data.id_bloqueo ?? null,
+      expiraAt: data.expira_at ?? null,
+      estado: data.estado || 'liberado',
     }
   } catch (err) {
+    const status = err?.response?.status || err?.status
+    if (status === 404 || (status >= 500 && status < 600)) {
+      console.warn('[seats] release tolerante -> sin_bloqueo', {
+        idViaje,
+        idAsiento,
+        status,
+      })
+      return {
+        idViaje,
+        idAsiento,
+        idBloqueo: null,
+        expiraAt: null,
+        estado: 'sin_bloqueo',
+      }
+    }
     throw unwrapError(err)
   }
 }

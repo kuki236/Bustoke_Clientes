@@ -105,6 +105,41 @@ export function normalizeTravel(rawTravel, index = 0) {
       : pick('tipo_asiento', 'tipoAsiento', 'servicio')
         ? [pick('tipo_asiento', 'tipoAsiento', 'servicio')]
         : ['Normal']
+  const normalizeSeatTypes = (value) => {
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => {
+          if (item === null || item === undefined) return ''
+          if (typeof item === 'string') return item
+          if (typeof item === 'object') {
+            return item.tipo || item.type || item.nombre || item.name || ''
+          }
+          return String(item)
+        })
+        .map((s) => String(s).trim())
+        .filter(Boolean)
+    }
+    if (typeof value === 'string') {
+      return value
+        .split(/[,;|]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    }
+    if (value && typeof value === 'object') {
+      const single = value.tipo || value.type || value.nombre || value.name
+      if (single) return [String(single).trim()].filter(Boolean)
+    }
+    return []
+  }
+  const rawSeatTypes =
+    rawTravel.tipos_asiento ??
+    rawTravel.seatTypes ??
+    rawTravel.tipo_asiento ??
+    rawTravel.tipoAsiento ??
+    rawTravel.servicio ??
+    rawTravel.servicios ??
+    []
+  const seatTypes = normalizeSeatTypes(rawSeatTypes)
   const idAgencia = pick('id_agencia', 'idAgencia')
   return {
     id:
@@ -133,6 +168,8 @@ export function normalizeTravel(rawTravel, index = 0) {
         pick('asientos_libres', 'asientosLibres', 'seatsLeft', 'asientos_disponibles'),
       ) || 0,
     services,
+    seatTypes,
+    tipos_asiento: seatTypes,
     shift: pick('turno', 'shift') || inferShift(departureHours),
     raw: rawTravel,
   }

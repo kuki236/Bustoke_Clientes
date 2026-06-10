@@ -566,6 +566,7 @@ export default function ResultsPage() {
           destination={destinationCity}
           date={displayDate}
           passengers={passengers}
+          onBack={handleBackToLanding}
         />
         <main className="flex flex-col gap-4 p-4">
           {error && !loading && <Alert variant="error">{error}</Alert>}
@@ -587,15 +588,6 @@ export default function ResultsPage() {
               />
             ))
           )}
-
-          <button
-            type="button"
-            onClick={handleBackToLanding}
-            className="mt-2 flex items-center justify-center gap-2 text-sm font-medium text-neutral-600 py-2"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Volver a la búsqueda
-          </button>
         </main>
         <BottomNav active="buscar" onNavigate={handleNavigate} />
       </div>

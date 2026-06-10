@@ -140,6 +140,7 @@ async def get_travel(
         )
 
     libres = repo.count_free_seats(viaje_id=viaje.id_viaje, id_bus=viaje.id_bus)
+    tipos_asiento = repo.list_tipos_asiento_by_bus(viaje.id_bus)
     ruta = viaje.ruta
     return ViajeBusquedaResponse(
         id_viaje=viaje.id_viaje,
@@ -154,6 +155,7 @@ async def get_travel(
         rampa_embarque=viaje.rampa_embarque,
         precio_base=ruta.tarifa_base,
         asientos_libres=libres,
+        tipos_asiento=tipos_asiento,
     )
 
 

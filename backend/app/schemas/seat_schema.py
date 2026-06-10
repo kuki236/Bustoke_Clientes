@@ -192,6 +192,12 @@ class SeatReleaseRequest(BaseModel):
         description="Token que identifica la sesión de bloqueo. Si se omite, "
         "se libera cualquier bloqueo activo para el par (viaje, asiento).",
     )
+    id_usuario: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="ID del usuario autenticado (derivado del JWT). Si se "
+        "indica, se filtra adicionalmente por dueño del bloqueo.",
+    )
 
 
 class SeatHoldResult(BaseModel):

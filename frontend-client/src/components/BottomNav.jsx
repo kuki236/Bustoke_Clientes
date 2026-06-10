@@ -1,4 +1,5 @@
 import { Search, Compass, User } from 'lucide-react'
+import { useLocation, matchPath } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 const ITEMS = [
@@ -7,8 +8,21 @@ const ITEMS = [
   { id: 'perfil', label: 'Perfil', icon: User },
 ]
 
+const HIDDEN_PATTERNS = [
+  '/viaje/:id_viaje/asientos',
+  '/checkout',
+  '/checkout/success',
+]
+
 export default function BottomNav({ active = 'buscar', onNavigate }) {
   const { isAuthenticated } = useAuth()
+  const location = useLocation()
+
+  const shouldHide = HIDDEN_PATTERNS.some(
+    (pattern) => matchPath({ path: pattern, end: true }, location.pathname) !== null,
+  )
+
+  if (shouldHide) return null
 
   const handlePress = (id) => {
     if (id === 'perfil' && !isAuthenticated) {

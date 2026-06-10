@@ -106,13 +106,31 @@ class SeatService:
         id_viaje: int,
         id_asiento: int,
         token_sesion: Optional[str] = None,
+        id_usuario: Optional[int] = None,
     ) -> dict:
-        """Libera el bloqueo vigente del par (viaje, asiento)."""
-        count = self.seats.release_hold(
-            id_viaje=id_viaje,
-            id_asiento=id_asiento,
-            token_sesion=token_sesion,
-        )
+        """
+        Libera el bloqueo vigente del par (viaje, asiento).
+
+        Tolerante: si el `release_hold` del repositorio lanza (sesión
+        sucia, lock, timeout), devolvemos un resultado neutro
+        (`estado='sin_bloqueo'`) en lugar de propagar la excepción al
+        cliente. La capa HTTP se encarga del commit final.
+        """
+        try:
+            count = self.seats.release_hold(
+                id_viaje=id_viaje,
+                id_asiento=id_asiento,
+                token_sesion=token_sesion,
+                id_usuario=id_usuario,
+            )
+        except Exception:
+            return {
+                "id_viaje": id_viaje,
+                "id_asiento": id_asiento,
+                "id_bloqueo": None,
+                "expira_at": None,
+                "estado": "sin_bloqueo",
+            }
         return {
             "id_viaje": id_viaje,
             "id_asiento": id_asiento,

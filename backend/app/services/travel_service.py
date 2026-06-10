@@ -75,6 +75,8 @@ class TravelService:
                 id_bus=v.id_bus,
             )
 
+            tipos_asiento = self.travels.list_tipos_asiento_by_bus(v.id_bus)
+
             ruta = v.ruta
             results.append(
                 ViajeBusquedaResponse(
@@ -90,6 +92,7 @@ class TravelService:
                     rampa_embarque=v.rampa_embarque,
                     precio_base=ruta.tarifa_base,
                     asientos_libres=libres,
+                    tipos_asiento=tipos_asiento,
                 )
             )
 

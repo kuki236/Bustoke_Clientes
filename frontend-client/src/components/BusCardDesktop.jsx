@@ -65,6 +65,16 @@ function BoardingPoint({ point }) {
 export default function BusCardDesktop({ trip, selected, onSelect, onChooseSeats }) {
   const seats = Number.isFinite(trip?.seatsLeft) ? trip.seatsLeft : 0
   const isOut = seats <= 0
+
+  const rawTypes =
+    trip?.tipos_asiento ??
+    trip?.tiposAsiento ??
+    trip?.seatTypes ??
+    trip?.tipoAsiento ??
+    trip?.asientos ??
+    []
+  const safeTypes = Array.isArray(rawTypes) ? rawTypes : []
+
   return (
     <div
       className={`border rounded-xl p-4 flex items-center justify-between bg-white shadow-sm transition-colors ${
@@ -95,15 +105,22 @@ export default function BusCardDesktop({ trip, selected, onSelect, onChooseSeats
           <span className="text-base font-bold text-neutral-900">
             Desde {formatPrice(trip.priceFrom)}
           </span>
-          <div className="flex items-center gap-1.5">
-            {trip.services.map((service) => (
-              <span
-                key={service}
-                className="bg-blue-50 text-blue-600 rounded px-2 py-0.5 text-xs font-medium"
-              >
-                {service}
-              </span>
-            ))}
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {safeTypes.map((asiento, index) => {
+              const key = String(asiento ?? '').toLowerCase()
+              const styles =
+                key === 'vip'
+                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                  : 'bg-blue-50 text-blue-700 border border-blue-200'
+              return (
+                <span
+                  key={`${String(asiento ?? '')}-${index}`}
+                  className={`inline-flex items-center text-xs px-2 py-0.5 rounded-md font-medium uppercase leading-none ${styles}`}
+                >
+                  {String(asiento ?? '').toUpperCase()}
+                </span>
+              )
+            })}
           </div>
         </div>
         <button
