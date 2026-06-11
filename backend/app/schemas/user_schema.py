@@ -131,6 +131,10 @@ class UsuarioRead(UsuarioBase):
     fecha_creacion: datetime
     nombres: Optional[str] = None
     apellido_paterno: Optional[str] = None
+    apellido_materno: Optional[str] = None
+    numero_documento: Optional[str] = None
+    id_tipo_documento: Optional[int] = None
+    tipo_documento: Optional[str] = None
 
 
 class UsuarioInDB(UsuarioRead):

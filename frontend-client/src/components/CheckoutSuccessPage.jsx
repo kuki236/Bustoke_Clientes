@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft,
   Bus,
   CircleCheck,
   Download,
   MapPin,
-  QrCode,
   Share2,
 } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 import Navbar from './Navbar'
 import BottomNav from './BottomNav'
+import Alert from './Alert'
 
 const DEFAULT_DATE = '15/06/2026'
 const PAYMENT_METHOD_LABEL = {
@@ -48,15 +48,19 @@ function DesktopSuccessBanner() {
   )
 }
 
-function QrPlaceholder({ value }) {
+function QrBlock({ value }) {
   if (!value) return null
   return (
     <div
-      className="w-24 h-24 rounded-lg border border-neutral-200 bg-white flex flex-col items-center justify-center text-center p-1"
+      className="flex flex-col items-center gap-1.5"
       aria-label={`Código QR ${value}`}
     >
-      <QrCode className="w-5 h-5 text-blue-600 mb-1" />
-      <span className="text-[9px] font-mono text-neutral-700 break-all leading-tight">
+      <QRCodeSVG
+        value={`http://192.168.1.50:8000/v1/boletos/validar/${value}`}
+        size={112}
+        className="p-1 bg-white rounded-md border border-slate-200"
+      />
+      <span className="font-mono text-[10px] text-neutral-700 text-center break-all leading-tight max-w-[7rem]">
         {value}
       </span>
     </div>
@@ -78,7 +82,7 @@ function TicketCard({ boleto, pasajeroLabel }) {
             </span>
           </div>
         </div>
-        <QrPlaceholder value={boleto.codigoQr} />
+        <QrBlock value={boleto.codigoQr} />
       </header>
       <div className="grid sm:grid-cols-2 gap-3 text-sm">
         <div className="flex flex-col">
@@ -91,12 +95,6 @@ function TicketCard({ boleto, pasajeroLabel }) {
           <span className="text-xs text-neutral-500">Precio</span>
           <span className="font-medium text-neutral-900">
             S/ {formatNumber(boleto.precioFinal)}
-          </span>
-        </div>
-        <div className="flex flex-col sm:col-span-2">
-          <span className="text-xs text-neutral-500">Código QR</span>
-          <span className="font-mono text-xs text-neutral-700 break-all">
-            {boleto.codigoQr}
           </span>
         </div>
       </div>
@@ -119,7 +117,7 @@ function SummaryBlock({ summary, trip, date, paymentMethod }) {
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-xs text-neutral-500">Estado</span>
-          <span className="font-semibold text-green-700">
+          <span className="font-semibold text-green-700 capitalize">
             {summary.estado || 'confirmada'}
           </span>
         </div>
@@ -166,7 +164,7 @@ function SummaryBlock({ summary, trip, date, paymentMethod }) {
         </div>
         <div className="flex flex-col gap-0.5">
           <span className="text-xs text-neutral-500">Estado del pago</span>
-          <span className="font-medium text-neutral-900">
+          <span className="font-medium text-neutral-900 capitalize">
             {summary.pago?.estado || 'completado'}
           </span>
         </div>
@@ -209,13 +207,20 @@ export default function CheckoutSuccessPage() {
   const { bookingResult, trip, date, paymentMethod } =
     location.state || {}
 
-  const [copied, setCopied] = useState(false)
+  const [shareNotice, setShareNotice] = useState('')
+  const [showCopiedToast, setShowCopiedToast] = useState(false)
 
   useEffect(() => {
-    if (!copied) return undefined
-    const timer = setTimeout(() => setCopied(false), 1800)
+    if (!shareNotice) return undefined
+    const timer = setTimeout(() => setShareNotice(''), 3500)
     return () => clearTimeout(timer)
-  }, [copied])
+  }, [shareNotice])
+
+  useEffect(() => {
+    if (!showCopiedToast) return undefined
+    const timer = setTimeout(() => setShowCopiedToast(false), 3000)
+    return () => clearTimeout(timer)
+  }, [showCopiedToast])
 
   const summary = useMemo(() => {
     if (!bookingResult) return null
@@ -231,17 +236,55 @@ export default function CheckoutSuccessPage() {
   const handleHome = () => navigate('/')
   const handleTrips = () => navigate('/?tab=mis-viajes')
   const handleShare = async () => {
-    if (!summary?.codigoReserva) return
-    const text = `Mi reserva en BUSTOKE: ${summary.codigoReserva}`
+    if (!summary) return
+
+    const infoViaje = {
+      origen: trip?.origin || 'Origen',
+      destino: trip?.destination || 'Destino',
+      empresa: trip?.company || '—',
+      fecha: date || DEFAULT_DATE,
+    }
+
+    const asientosAgrupados = (summary.boletos || [])
+      .map((b) => b.numeroAsiento)
+      .filter(Boolean)
+      .join(', ')
+
+    const textoCompartir =
+      `🚌 *¡Mis Pasajes en Bustoke!* 🚌\n\n` +
+      `📍 *Ruta:* ${infoViaje.origen} → ${infoViaje.destino}\n` +
+      `🏢 *Empresa:* ${infoViaje.empresa}\n` +
+      `📅 *Fecha:* ${infoViaje.fecha}\n` +
+      `💺 *Asientos:* ${asientosAgrupados}\n\n` +
+      `Presenta tus códigos QR en el counter del terrapuerto antes del embarque. ¡Buen viaje!`
+
     try {
-      if (navigator?.share) {
-        await navigator.share({ title: 'Reserva BUSTOKE', text })
-      } else if (navigator?.clipboard) {
-        await navigator.clipboard.writeText(text)
-        setCopied(true)
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(textoCompartir)
+        setShowCopiedToast(true)
       }
     } catch {
-      // ignore share/copy failures
+      // Copia silenciosa: si el navegador bloquea el portapapeles,
+      // seguimos intentando abrir el menú nativo o mostraremos el
+      // aviso de confirmación en el fallback.
+      setShowCopiedToast(true)
+    }
+
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({
+          title: 'Boletos Bustoke',
+          text: textoCompartir,
+        })
+      } else {
+        alert('¡Información del viaje copiada al portapapeles con éxito!')
+      }
+    } catch (err) {
+      if (err?.name !== 'AbortError') {
+        setShareNotice(
+          'No pudimos generar el mensaje. Inténtalo nuevamente en unos segundos.',
+        )
+      }
     }
   }
 
@@ -251,18 +294,24 @@ export default function CheckoutSuccessPage() {
 
   return (
     <div className="min-h-screen bg-neutral-100">
+      {shareNotice && (
+        <div
+          className="fixed left-1/2 top-4 z-50 w-[min(92vw,420px)] -translate-x-1/2"
+          aria-live="polite"
+        >
+          <Alert variant="success" className="shadow-lg">
+            {shareNotice}
+          </Alert>
+        </div>
+      )}
+      {showCopiedToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-xl flex items-center gap-2 z-50 animate-bounce">
+          <span>📋 ¡Información de viaje copiada al portapapeles!</span>
+        </div>
+      )}
       <div className="hidden md:block">
         <Navbar onNavigate={(tab) => navigate(`/?tab=${tab}`)} active="buscar" />
         <div className="max-w-5xl mx-auto px-8 py-10 flex flex-col gap-6">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="flex items-center gap-2 text-sm font-medium text-neutral-600 hover:text-blue-600 transition-colors self-start"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Volver
-          </button>
-
           <DesktopSuccessBanner />
 
           <SummaryBlock
@@ -292,25 +341,25 @@ export default function CheckoutSuccessPage() {
               <button
                 type="button"
                 onClick={handleShare}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-neutral-200 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
+                className="inline-flex items-center gap-2 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 px-5 py-2.5 rounded-md font-medium text-sm"
               >
                 <Share2 className="w-4 h-4" />
-                {copied ? 'Copiado' : 'Compartir'}
-              </button>
-              <button
-                type="button"
-                onClick={handleTrips}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-neutral-200 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
-              >
-                <Download className="w-4 h-4" />
-                Ver mis viajes
+                Compartir
               </button>
               <button
                 type="button"
                 onClick={handleHome}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"
+                className="inline-flex items-center gap-2 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 px-5 py-2.5 rounded-md font-medium text-sm"
               >
                 Volver al inicio
+              </button>
+              <button
+                type="button"
+                onClick={handleTrips}
+                className="inline-flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 font-medium px-5 py-2.5 rounded-md text-sm"
+              >
+                <Download className="w-4 h-4" />
+                Ver mis viajes
               </button>
             </div>
           </div>
@@ -319,19 +368,6 @@ export default function CheckoutSuccessPage() {
 
       <div className="block md:hidden pb-28">
         <header className="bg-blue-600 text-white p-5 text-center">
-          <div className="flex items-center justify-between mb-3">
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              aria-label="Volver"
-              className="p-1 -ml-1 rounded-full hover:bg-white/10 transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <p className="flex-1 text-sm font-semibold leading-snug text-center pr-7">
-              ¡Pago confirmado!
-            </p>
-          </div>
           <p className="text-3xl font-bold tracking-wide">
             {summary.codigoReserva}
           </p>

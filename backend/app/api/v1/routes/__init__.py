@@ -13,6 +13,7 @@ from app.api.v1.routes import (
     auth,
     billing,
     bookings,
+    boletos,
     claims,
     seats,
     travels,
@@ -30,4 +31,7 @@ api_v1_router.include_router(claims.router, prefix="/claims", tags=["Claims"])
 api_v1_router.include_router(billing.router, prefix="/billing", tags=["Billing"])
 api_v1_router.include_router(
     bookings.router, prefix="/bookings", tags=["Bookings"]
+)
+api_v1_router.include_router(
+    boletos.router, prefix="/boletos", tags=["Boletos"]
 )

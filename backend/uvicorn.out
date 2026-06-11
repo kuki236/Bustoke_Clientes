@@ -1,0 +1,16 @@
+INFO:     127.0.0.1:56922 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60184 - "OPTIONS /v1/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60445 - "OPTIONS /v1/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60184 - "GET /v1/auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:60184 - "GET /v1/auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:61729 - "OPTIONS /v1/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61729 - "POST /v1/auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61729 - "GET /v1/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52851 - "GET /v1/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52851 - "GET /v1/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59783 - "GET /v1/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59783 - "GET /v1/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65110 - "GET /v1/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65110 - "GET /v1/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61673 - "GET /v1/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61673 - "GET /v1/auth/me HTTP/1.1" 200 OK

@@ -4,15 +4,16 @@ import {
   CircleCheck,
   Download,
   MapPin,
-  QrCode,
   Share2,
   X,
 } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 import GuidedRouteMap, {
   GuidedRouteHeader,
 } from './GuidedRouteMap'
 import Navbar from './Navbar'
 import BottomNav from './BottomNav'
+import Alert from './Alert'
 
 const DEFAULT_DATE = '15/06/2026'
 const RESERVATION_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -239,13 +240,14 @@ function DigitalTicketCard({ ticket, reservationCode, className = '' }) {
         <p className="text-sm font-bold text-neutral-900">
           Escanear al abordar
         </p>
-        <div className="w-32 h-32 sm:w-36 sm:h-36 rounded-lg border border-neutral-200 bg-white flex items-center justify-center">
-          <QrCode
-            className="w-24 h-24 sm:w-28 sm:h-28 text-neutral-900"
-            strokeWidth={1.5}
-            aria-hidden="true"
-          />
-        </div>
+        <QRCodeSVG
+          value={`http://192.168.1.50:8000/v1/boletos/validar/${ticket.codigo_qr}`}
+          size={112}
+          className="p-1 bg-white rounded-md border border-slate-200"
+        />
+        <p className="font-mono text-[10px] text-neutral-700 text-center break-all leading-tight max-w-[8rem]">
+          {ticket.codigo_qr}
+        </p>
         <p className="text-xs text-neutral-600">
           Cód. Reserva:{' '}
           <span className="font-semibold text-neutral-900">
@@ -303,6 +305,42 @@ export default function ConfirmationPage({
     return ''
   }, [buyer])
 
+  const [shareNotice, setShareNotice] = useState('')
+
+  useEffect(() => {
+    if (!shareNotice) return undefined
+    const timer = setTimeout(() => setShareNotice(''), 3500)
+    return () => clearTimeout(timer)
+  }, [shareNotice])
+
+  const handleShare = async () => {
+    const shareUrl = window.location.href
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({
+          title: 'Mis pasajes en Bustoke 🚌',
+          text: '¡Hola! Te comparto los datos de los pasajes para nuestro viaje.',
+          url: shareUrl,
+        })
+      } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(shareUrl)
+        setShareNotice(
+          '¡Enlace de los boletos copiado al portapapeles! Ya puedes pegarlo y enviarlo por WhatsApp.',
+        )
+      } else {
+        setShareNotice(
+          'Tu navegador no permite compartir ni copiar el enlace automáticamente.',
+        )
+      }
+    } catch (err) {
+      if (err?.name !== 'AbortError') {
+        setShareNotice(
+          'No pudimos generar el enlace. Inténtalo nuevamente en unos segundos.',
+        )
+      }
+    }
+  }
+
   const displayDate = date || DEFAULT_DATE
   const company = trip?.company ?? 'Cruz del Sur'
   const origin = trip?.origin ?? 'Lima'
@@ -314,8 +352,15 @@ export default function ConfirmationPage({
     () =>
       selectedSeats.map((seatId, index) => {
         const passenger = passengers[index] || {}
+        const codigo_qr = `QR-${(
+          `${reservationCode}${formatSeat(seatId)}${index}`
+            .replace(/[^A-Za-z0-9]/g, 'X')
+            .padEnd(12, 'X')
+            .slice(0, 12)
+        ).toUpperCase()}`
         return {
           id: `${seatId}-${index}`,
+          codigo_qr,
           origin,
           destination,
           date: displayDate,
@@ -337,11 +382,22 @@ export default function ConfirmationPage({
       departureTime,
       arrivalTime,
       company,
+      reservationCode,
     ],
   )
 
   return (
     <div className="min-h-screen bg-neutral-100">
+      {shareNotice && (
+        <div
+          className="fixed left-1/2 top-4 z-50 w-[min(92vw,420px)] -translate-x-1/2"
+          aria-live="polite"
+        >
+          <Alert variant="success" className="shadow-lg">
+            {shareNotice}
+          </Alert>
+        </div>
+      )}
       <div className="hidden md:block">
         <Navbar onNavigate={onNavigate} active="buscar" />
         <div className="max-w-7xl mx-auto px-8 py-10 flex flex-col gap-6">
@@ -397,6 +453,7 @@ export default function ConfirmationPage({
             </button>
             <button
               type="button"
+              onClick={handleShare}
               className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg border border-blue-600 text-blue-600 font-medium text-sm bg-transparent hover:bg-blue-50 transition-colors"
             >
               <Share2 className="w-4 h-4" />

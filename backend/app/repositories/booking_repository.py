@@ -11,9 +11,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import (
+    Agencia,
     Asiento,
     BloqueoTemporal,
     Boleto,
+    Bus,
     Pago,
     Pasajero,
     Ruta,
@@ -72,6 +74,35 @@ class BookingRepository:
             Boleto.estado == "activo",
         )
         return self.db.execute(stmt).first() is not None
+
+    def get_boletos_by_usuario(self, id_usuario: int) -> List[Boleto]:
+        """
+        Lista los boletos asociados a un usuario autenticado, con
+        `viaje`, `asiento` y la cadena `viaje → ruta → terminales` y
+        `viaje → bus → agencia` eager-loaded.
+
+        Ordena por `fecha_emision DESC` (lo más reciente primero).
+        Se usa como fuente de datos del endpoint
+        `GET /v1/boletos/historial`.
+        """
+        stmt = (
+            select(Boleto)
+            .options(
+                joinedload(Boleto.asiento),
+                joinedload(Boleto.viaje).joinedload(Viaje.ruta).joinedload(
+                    Ruta.terminal_origen
+                ),
+                joinedload(Boleto.viaje).joinedload(Viaje.ruta).joinedload(
+                    Ruta.terminal_destino
+                ),
+                joinedload(Boleto.viaje).joinedload(Viaje.bus).joinedload(
+                    Bus.agencia
+                ),
+            )
+            .where(Boleto.id_usuario == id_usuario)
+            .order_by(Boleto.fecha_emision.desc())
+        )
+        return list(self.db.scalars(stmt).unique().all())
 
     # ========================================================================
     # PASAJEROS

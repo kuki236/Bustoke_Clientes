@@ -1,9 +1,87 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, Star, Bath, Layers } from 'lucide-react'
+import { ArrowLeft, Star, Bath, Layers, Clock, X } from 'lucide-react'
 import Navbar from './Navbar'
 import BottomNav from './BottomNav'
 import Alert from './Alert'
+
+const RESERVATION_SECONDS = 600
+const ALERT_THRESHOLD_SECONDS = 120
+
+function formatTimeLeft(seconds) {
+  const total = Math.max(0, Number(seconds) || 0)
+  const minutes = Math.floor(total / 60)
+  const secs = total % 60
+  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+}
+
+function ReservationTimerBadge({ timeLeft }) {
+  if (timeLeft == null) return null
+  const isAlert = timeLeft <= ALERT_THRESHOLD_SECONDS
+  const baseClasses =
+    'px-3 py-1 rounded-md font-medium text-sm flex items-center gap-1.5 leading-none'
+  const variantClasses = isAlert
+    ? 'bg-red-50 text-red-600 border border-red-200 animate-pulse'
+    : 'bg-slate-50 text-slate-700 border border-slate-200'
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label={`Tiempo restante de reserva ${formatTimeLeft(timeLeft)}`}
+      className={`${baseClasses} ${variantClasses}`}
+    >
+      <Clock className="w-4 h-4 leading-none" aria-hidden="true" />
+      <span className="leading-none">{formatTimeLeft(timeLeft)}</span>
+    </div>
+  )
+}
+
+function ExpiredModal({ open, onAccept }) {
+  if (!open) return null
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="reservation-expired-title"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-neutral-900/50"
+    >
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-card p-6 flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="w-10 h-10 rounded-full bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+            <Clock className="w-5 h-5" aria-hidden="true" />
+          </div>
+          <button
+            type="button"
+            onClick={onAccept}
+            aria-label="Cerrar"
+            className="p-1 rounded-full text-neutral-500 hover:bg-neutral-100"
+          >
+            <X className="w-4 h-4" aria-hidden="true" />
+          </button>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <h2
+            id="reservation-expired-title"
+            className="text-base font-semibold text-neutral-900"
+          >
+            Tiempo de reserva expirado
+          </h2>
+          <p className="text-sm text-neutral-600 leading-relaxed">
+            Tu tiempo de reserva ha expirado. Por favor, selecciona tus asientos
+            nuevamente.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onAccept}
+          className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+        >
+          Aceptar
+        </button>
+      </div>
+    </div>
+  )
+}
 import {
   fetchSeatMapRequest,
   holdSeatRequest,
@@ -430,6 +508,9 @@ export default function SeatSelectionPage() {
   const [busyIds, setBusyIds] = useState([])
   const [activeFloor, setActiveFloor] = useState('1')
   const [actionError, setActionError] = useState(null)
+  const [timeLeft, setTimeLeft] = useState(null)
+  const [showExpiredModal, setShowExpiredModal] = useState(false)
+  const expiredHandledRef = useRef(false)
 
   const sessionToken = useMemo(() => getSessionToken(), [])
 
@@ -467,6 +548,63 @@ export default function SeatSelectionPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadSeatMap()
   }, [loadSeatMap])
+
+  useEffect(() => {
+    if (selectedIds.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTimeLeft(null)
+      expiredHandledRef.current = false
+      return
+    }
+    if (timeLeft == null) {
+      setTimeLeft(RESERVATION_SECONDS)
+      return
+    }
+    if (timeLeft <= 0) return
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [selectedIds.length, timeLeft])
+
+  useEffect(() => {
+    if (timeLeft === 0 && selectedIds.length > 0 && !expiredHandledRef.current) {
+      expiredHandledRef.current = true
+      setShowExpiredModal(true)
+    }
+  }, [timeLeft, selectedIds.length])
+
+  const handleAcceptExpired = useCallback(async () => {
+    const idsToRelease = selectedIds.slice()
+    setShowExpiredModal(false)
+    setSelectedIds([])
+    setSeatMap((prev) => {
+      if (!prev || idsToRelease.length === 0) return prev
+      return {
+        ...prev,
+        asientos: prev.asientos.map((s) =>
+          idsToRelease.includes(s.id_asiento)
+            ? { ...s, estado_interfaz: SEAT_STATUS.FREE }
+            : s,
+        ),
+      }
+    })
+    setTimeLeft(null)
+    expiredHandledRef.current = false
+    for (const idAsiento of idsToRelease) {
+      const body = {
+        idViaje,
+        idAsiento,
+        tokenSesion: sessionToken,
+      }
+      if (currentUserId) body.idUsuario = currentUserId
+      try {
+        await releaseSeatRequest(body)
+      } catch (err) {
+        console.warn('[SeatSelection] expiration release failed', err)
+      }
+    }
+  }, [selectedIds, idViaje, sessionToken, currentUserId])
 
   useEffect(() => {
     return () => {
@@ -728,7 +866,11 @@ export default function SeatSelectionPage() {
   return (
     <div className="min-h-screen bg-neutral-100">
       <div className="hidden md:block">
-        <Navbar onNavigate={handleNavigate} active="buscar" />
+        <Navbar
+          onNavigate={handleNavigate}
+          active="buscar"
+          timerSlot={<ReservationTimerBadge timeLeft={timeLeft} />}
+        />
         <div className="max-w-7xl mx-auto px-8 py-10">
           <header className="text-center mb-8">
             <h1 className="text-2xl font-bold text-neutral-900">
@@ -849,6 +991,8 @@ export default function SeatSelectionPage() {
 
         <BottomNav active="buscar" onNavigate={handleNavigate} />
       </div>
+
+      <ExpiredModal open={showExpiredModal} onAccept={handleAcceptExpired} />
     </div>
   )
 }

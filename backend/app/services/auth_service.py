@@ -203,13 +203,19 @@ class AuthService:
         datos personales del `Pasajero` vinculado (si existe).
 
         Para usuarios sin ficha de pasajero (admin_agencia, superadmin)
-        los campos `nombres` / `apellido_paterno` viajan como `None`.
+        los campos personales viajan como `None`.
         """
         usuario_read = UsuarioRead.model_validate(user)
         pasajero = self.pasajeros.get_by_user(user.id_usuario)
         if pasajero is not None:
             usuario_read.nombres = pasajero.nombres
             usuario_read.apellido_paterno = pasajero.apellido_paterno
+            usuario_read.apellido_materno = pasajero.apellido_materno
+            usuario_read.numero_documento = pasajero.numero_documento
+            usuario_read.id_tipo_documento = pasajero.id_tipo_documento
+            tipo = self.pasajeros.get_tipo_documento(pasajero.id_tipo_documento)
+            if tipo is not None:
+                usuario_read.tipo_documento = tipo.nombre
         return usuario_read
 
     def _build_token_response(self, user: Usuario) -> TokenResponse:

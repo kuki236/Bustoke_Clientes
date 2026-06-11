@@ -1,16 +1,94 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, CreditCard, Smartphone } from 'lucide-react'
+import { ArrowLeft, Clock, CreditCard, Smartphone, UserCircle2, X } from 'lucide-react'
 import Navbar from './Navbar'
 import BottomNav from './BottomNav'
 import Alert from './Alert'
 import { processBookingRequest } from '../api/bookings'
+import { useAuth } from '../context/AuthContext'
 
 const DOC_TYPES = ['DNI', 'CE', 'Pasaporte']
 const DEFAULT_DOC_TYPE = 'DNI'
 const DEFAULT_DATE = '15/06/2026'
 const SEAT_SESSION_TOKEN_KEY = 'bustoke_seat_session_token'
 const CHECKOUT_SEATS_STORAGE_KEY = 'bustoke_checkout_seats_full'
+const RESERVATION_SECONDS = 600
+const ALERT_THRESHOLD_SECONDS = 120
+
+function formatTimeLeft(seconds) {
+  const total = Math.max(0, Number(seconds) || 0)
+  const minutes = Math.floor(total / 60)
+  const secs = total % 60
+  return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+}
+
+function ReservationTimerBadge({ timeLeft }) {
+  if (timeLeft == null) return null
+  const isAlert = timeLeft <= ALERT_THRESHOLD_SECONDS
+  const baseClasses =
+    'px-3 py-1 rounded-md font-medium text-sm flex items-center gap-1.5 leading-none'
+  const variantClasses = isAlert
+    ? 'bg-red-50 text-red-600 border border-red-200 animate-pulse'
+    : 'bg-slate-50 text-slate-700 border border-slate-200'
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label={`Tiempo restante de reserva ${formatTimeLeft(timeLeft)}`}
+      className={`${baseClasses} ${variantClasses}`}
+    >
+      <Clock className="w-4 h-4 leading-none" aria-hidden="true" />
+      <span className="leading-none">{formatTimeLeft(timeLeft)}</span>
+    </div>
+  )
+}
+
+function ExpiredModal({ open, onAccept }) {
+  if (!open) return null
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="checkout-reservation-expired-title"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-neutral-900/50"
+    >
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-card p-6 flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="w-10 h-10 rounded-full bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+            <Clock className="w-5 h-5" aria-hidden="true" />
+          </div>
+          <button
+            type="button"
+            onClick={onAccept}
+            aria-label="Cerrar"
+            className="p-1 rounded-full text-neutral-500 hover:bg-neutral-100"
+          >
+            <X className="w-4 h-4" aria-hidden="true" />
+          </button>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <h2
+            id="checkout-reservation-expired-title"
+            className="text-base font-semibold text-neutral-900"
+          >
+            Tiempo de reserva expirado
+          </h2>
+          <p className="text-sm text-neutral-600 leading-relaxed">
+            Tu tiempo de reserva ha expirado. Por favor, selecciona tus asientos
+            nuevamente.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onAccept}
+          className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+        >
+          Aceptar
+        </button>
+      </div>
+    </div>
+  )
+}
 
 const DOC_TYPE_TO_ID = {
   DNI: 1,
@@ -68,6 +146,82 @@ function getEmptyBuyer() {
     paternalSurname: '',
     maternalSurname: '',
     email: '',
+  }
+}
+
+function normalizeDocType(raw) {
+  if (!raw) return DEFAULT_DOC_TYPE
+  const value = String(raw).trim().toUpperCase()
+  if (value === 'DNI' || value === '1') return 'DNI'
+  if (value === 'PASAPORTE' || value === '2') return 'Pasaporte'
+  if (value === 'CE' || value === 'CARNET DE EXTRANJERIA' || value === '3') {
+    return 'CE'
+  }
+  return DEFAULT_DOC_TYPE
+}
+
+function splitFullName(fullName) {
+  if (!fullName) return { names: '', paternalSurname: '', maternalSurname: '' }
+  const tokens = String(fullName)
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+  if (tokens.length === 0) {
+    return { names: '', paternalSurname: '', maternalSurname: '' }
+  }
+  if (tokens.length === 1) {
+    return { names: tokens[0], paternalSurname: '', maternalSurname: '' }
+  }
+  if (tokens.length === 2) {
+    return { names: tokens[0], paternalSurname: tokens[1], maternalSurname: '' }
+  }
+  return {
+    names: tokens.slice(0, -2).join(' '),
+    paternalSurname: tokens[tokens.length - 2],
+    maternalSurname: tokens[tokens.length - 1],
+  }
+}
+
+function buyerFromUser(user) {
+  if (!user) return getEmptyBuyer()
+  const explicitNames = [
+    user.nombres,
+    user.names,
+    user.name,
+  ].find((v) => v && String(v).trim())
+  const split = explicitNames
+    ? { names: String(explicitNames).trim(), paternalSurname: '', maternalSurname: '' }
+    : splitFullName(
+        [user.nombre, user.full_name, user.fullName]
+          .find((v) => v && String(v).trim()) || '',
+      )
+  const paternal = [
+    user.apellido_paterno,
+    user.apellidoPaterno,
+    user.paternal_surname,
+    user.apellidoPaternoRaw,
+  ].find((v) => v && String(v).trim())
+  const maternal = [
+    user.apellido_materno,
+    user.apellidoMaterno,
+    user.maternal_surname,
+    user.apellidoMaternoRaw,
+  ].find((v) => v && String(v).trim())
+  return {
+    docType: normalizeDocType(
+      user.tipo_documento ?? user.tipoDocumento ?? user.doc_type,
+    ),
+    docNumber: String(
+      user.dni ??
+        user.numero_documento ??
+        user.numeroDocumento ??
+        user.doc_number ??
+        '',
+    ).trim(),
+    names: split.names,
+    paternalSurname: String(paternal || '').trim() || split.paternalSurname,
+    maternalSurname: String(maternal || '').trim() || split.maternalSurname,
+    email: String(user.email ?? user.correo ?? '').trim(),
   }
 }
 
@@ -170,6 +324,51 @@ function validateCheckoutForm({ buyer, passengers }) {
   return errors
 }
 
+function Checkbox({ id, checked, onChange, children, tone = 'default' }) {
+  const toneClasses =
+    tone === 'subtle'
+      ? 'text-neutral-600 hover:text-neutral-800'
+      : 'text-neutral-700'
+  return (
+    <label
+      htmlFor={id}
+      className={`flex items-start gap-2.5 text-sm cursor-pointer select-none ${toneClasses}`}
+    >
+      <span className="relative shrink-0 mt-0.5">
+        <input
+          id={id}
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          className="peer sr-only"
+        />
+        <span
+          className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
+            checked ? 'bg-blue-600 border-blue-600' : 'bg-white border-neutral-400'
+          }`}
+          aria-hidden="true"
+        >
+          {checked && (
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-3.5 h-3.5 text-white"
+            >
+              <path d="M5 12l5 5L20 7" />
+            </svg>
+          )}
+        </span>
+      </span>
+      <span className="leading-snug">{children}</span>
+    </label>
+  )
+}
+
 function SelectField({ label, value, onChange, options, id, disabled = false }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -186,7 +385,9 @@ function SelectField({ label, value, onChange, options, id, disabled = false }) 
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
           className={`w-full appearance-none px-3 py-2.5 pr-9 border border-neutral-400 rounded-lg text-sm text-neutral-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-            disabled ? 'bg-neutral-100 text-neutral-500 cursor-not-allowed' : ''
+            disabled
+              ? 'bg-neutral-100 !border-neutral-200 text-neutral-500 cursor-not-allowed select-none'
+              : ''
           }`}
         >
           {options.map((opt) => (
@@ -230,7 +431,9 @@ function InputField({ label, value, onChange, placeholder, type = 'text', id, di
         placeholder={placeholder}
         disabled={disabled}
         className={`w-full px-3 py-2.5 border border-neutral-400 rounded-lg text-sm text-neutral-900 placeholder:text-neutral-400 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-          disabled ? 'bg-neutral-100 text-neutral-500 cursor-not-allowed' : ''
+          disabled
+            ? 'bg-neutral-100 !border-neutral-200 text-neutral-500 cursor-not-allowed select-none'
+            : ''
         }`}
       />
     </div>
@@ -243,6 +446,10 @@ function PassengerAccordionItem({
   expanded,
   onToggleExpand,
   onChange,
+  showUseProfileCheckbox = false,
+  useProfileForPax1 = false,
+  onToggleUseProfileForPax1,
+  hasProfileData = false,
 }) {
   const update = (field, value) => {
     onChange(index, { ...passenger, [field]: value })
@@ -293,6 +500,29 @@ function PassengerAccordionItem({
         }`}
       >
         <div className="overflow-hidden flex flex-col gap-4">
+          {showUseProfileCheckbox && onToggleUseProfileForPax1 && (
+            <div className="-mt-1 mb-1 px-3 py-2.5 rounded-lg bg-blue-50 border border-blue-100">
+              <Checkbox
+                id="use-profile-pax1"
+                checked={useProfileForPax1}
+                onChange={onToggleUseProfileForPax1}
+                tone="subtle"
+              >
+                <span className="flex items-center gap-1.5 flex-wrap">
+                  <UserCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>
+                    Usar mis datos de perfil para el Pasajero 1
+                    {!hasProfileData && (
+                      <span className="text-neutral-500">
+                        {' '}
+                        (perfil incompleto)
+                      </span>
+                    )}
+                  </span>
+                </span>
+              </Checkbox>
+            </div>
+          )}
           <div className="grid sm:grid-cols-2 gap-4">
             <SelectField
               id={`pax-${index}-docType`}
@@ -300,6 +530,7 @@ function PassengerAccordionItem({
               value={passenger.docType}
               onChange={(v) => update('docType', v)}
               options={DOC_TYPES}
+              disabled={useProfileForPax1}
             />
             <InputField
               id={`pax-${index}-docNumber`}
@@ -307,6 +538,7 @@ function PassengerAccordionItem({
               value={passenger.docNumber}
               onChange={(v) => update('docNumber', v)}
               placeholder="Ej. 74872562"
+              disabled={useProfileForPax1}
             />
           </div>
           <InputField
@@ -315,6 +547,7 @@ function PassengerAccordionItem({
             value={passenger.names}
             onChange={(v) => update('names', v)}
             placeholder="Ej. Juan Carlos"
+            disabled={useProfileForPax1}
           />
           <div className="grid sm:grid-cols-2 gap-4">
             <InputField
@@ -323,6 +556,7 @@ function PassengerAccordionItem({
               value={passenger.paternalSurname}
               onChange={(v) => update('paternalSurname', v)}
               placeholder="Ej. Pérez"
+              disabled={useProfileForPax1}
             />
             <InputField
               id={`pax-${index}-maternal`}
@@ -330,6 +564,7 @@ function PassengerAccordionItem({
               value={passenger.maternalSurname}
               onChange={(v) => update('maternalSurname', v)}
               placeholder="Ej. Mendoza"
+              disabled={useProfileForPax1}
             />
           </div>
           <InputField
@@ -346,56 +581,49 @@ function PassengerAccordionItem({
   )
 }
 
-function BuyerBlock({ buyer, onChange, buyerIsPax1, onToggleBuyerIsPax1 }) {
+function BuyerBlock({
+  buyer,
+  onChange,
+  buyerIsPax1,
+  onToggleBuyerIsPax1,
+  isLoggedIn = false,
+  buyerReadOnlyReason = null,
+  showCreateAccountCheckbox = false,
+  createAccountChecked = false,
+  onToggleCreateAccount,
+}) {
   const update = (field, value) => {
     onChange({ ...buyer, [field]: value })
   }
   const lockFromPax1 = buyerIsPax1
+  const lockFromAuth = Boolean(buyerReadOnlyReason)
+  const allLocked = lockFromPax1 || lockFromAuth
 
   return (
     <section className="flex flex-col gap-4">
-      <h3 className="text-base font-semibold text-neutral-900">
-        Datos del comprador
-      </h3>
-
-      <label
-        htmlFor="buyer-is-pax1"
-        className="flex items-center gap-2 text-sm text-neutral-700 cursor-pointer select-none"
-      >
-        <span className="relative shrink-0">
-          <input
-            id="buyer-is-pax1"
-            type="checkbox"
-            checked={buyerIsPax1}
-            onChange={(e) => onToggleBuyerIsPax1(e.target.checked)}
-            className="peer sr-only"
-          />
-          <span
-            className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-              buyerIsPax1
-                ? 'bg-blue-600 border-blue-600'
-                : 'bg-white border-neutral-400'
-            }`}
-            aria-hidden="true"
-          >
-            {buyerIsPax1 && (
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="w-3.5 h-3.5 text-white"
-              >
-                <path d="M5 12l5 5L20 7" />
-              </svg>
-            )}
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="text-base font-semibold text-neutral-900">
+          Datos del comprador
+        </h3>
+        {isLoggedIn && (
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-full">
+            <UserCircle2 className="w-3.5 h-3.5" />
+            Sesión iniciada
           </span>
-        </span>
+        )}
+      </div>
+
+      <Checkbox
+        id="buyer-is-pax1"
+        checked={buyerIsPax1}
+        onChange={onToggleBuyerIsPax1}
+      >
         El comprador es el Pasajero 1
-      </label>
+      </Checkbox>
+
+      {buyerReadOnlyReason && (
+        <p className="text-xs text-neutral-500 -mt-2">{buyerReadOnlyReason}</p>
+      )}
 
       <div className="grid sm:grid-cols-2 gap-4">
         <SelectField
@@ -404,7 +632,7 @@ function BuyerBlock({ buyer, onChange, buyerIsPax1, onToggleBuyerIsPax1 }) {
           value={buyer.docType}
           onChange={(v) => update('docType', v)}
           options={DOC_TYPES}
-          {...(lockFromPax1 ? { disabled: true } : {})}
+          disabled={allLocked}
         />
         <InputField
           id="buyer-docNumber"
@@ -412,7 +640,7 @@ function BuyerBlock({ buyer, onChange, buyerIsPax1, onToggleBuyerIsPax1 }) {
           value={buyer.docNumber}
           onChange={(v) => update('docNumber', v)}
           placeholder="Ej. 74872562"
-          disabled={lockFromPax1}
+          disabled={allLocked}
         />
       </div>
       <InputField
@@ -421,7 +649,7 @@ function BuyerBlock({ buyer, onChange, buyerIsPax1, onToggleBuyerIsPax1 }) {
         value={buyer.names}
         onChange={(v) => update('names', v)}
         placeholder="Ej. Juan Carlos"
-        disabled={lockFromPax1}
+        disabled={allLocked}
       />
       <div className="grid sm:grid-cols-2 gap-4">
         <InputField
@@ -430,7 +658,7 @@ function BuyerBlock({ buyer, onChange, buyerIsPax1, onToggleBuyerIsPax1 }) {
           value={buyer.paternalSurname}
           onChange={(v) => update('paternalSurname', v)}
           placeholder="Ej. Pérez"
-          disabled={lockFromPax1}
+          disabled={allLocked}
         />
         <InputField
           id="buyer-maternal"
@@ -438,7 +666,7 @@ function BuyerBlock({ buyer, onChange, buyerIsPax1, onToggleBuyerIsPax1 }) {
           value={buyer.maternalSurname}
           onChange={(v) => update('maternalSurname', v)}
           placeholder="Ej. Mendoza"
-          disabled={lockFromPax1}
+          disabled={allLocked}
         />
       </div>
       <InputField
@@ -448,7 +676,22 @@ function BuyerBlock({ buyer, onChange, buyerIsPax1, onToggleBuyerIsPax1 }) {
         value={buyer.email}
         onChange={(v) => update('email', v)}
         placeholder="correo@ejemplo.com"
+        disabled={lockFromPax1}
       />
+
+      {showCreateAccountCheckbox && onToggleCreateAccount && (
+        <div className="pt-1">
+          <Checkbox
+            id="guest-create-account"
+            checked={createAccountChecked}
+            onChange={onToggleCreateAccount}
+            tone="subtle"
+          >
+            Guardar mis datos y crear una cuenta de Bustoke para futuros viajes
+            (Opcional)
+          </Checkbox>
+        </div>
+      )}
     </section>
   )
 }
@@ -605,6 +848,14 @@ function CheckoutForms({
   onToggleExpandPax,
   buyerIsPax1,
   onToggleBuyerIsPax1,
+  isLoggedIn = false,
+  useProfileForPax1 = false,
+  onToggleUseProfileForPax1,
+  hasProfileData = false,
+  buyerReadOnlyReason = null,
+  showCreateAccountCheckbox = false,
+  createAccountChecked = false,
+  onToggleCreateAccount,
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -621,6 +872,10 @@ function CheckoutForms({
               expanded={expandedPax.includes(i)}
               onToggleExpand={() => onToggleExpandPax(i)}
               onChange={onChangePassenger}
+              showUseProfileCheckbox={isLoggedIn && i === 0}
+              useProfileForPax1={isLoggedIn && i === 0 ? useProfileForPax1 : false}
+              onToggleUseProfileForPax1={onToggleUseProfileForPax1}
+              hasProfileData={hasProfileData}
             />
           ))}
         </div>
@@ -632,6 +887,11 @@ function CheckoutForms({
           onChange={onChangeBuyer}
           buyerIsPax1={buyerIsPax1}
           onToggleBuyerIsPax1={onToggleBuyerIsPax1}
+          isLoggedIn={isLoggedIn}
+          buyerReadOnlyReason={buyerReadOnlyReason}
+          showCreateAccountCheckbox={showCreateAccountCheckbox}
+          createAccountChecked={createAccountChecked}
+          onToggleCreateAccount={onToggleCreateAccount}
         />
       </article>
     </div>
@@ -776,7 +1036,23 @@ export default function CheckoutPage({
   const [passengers, setPassengers] = useState(() =>
     selectedSeats.map((s) => getEmptyPassenger(formatSeat(s))),
   )
-  const [buyer, setBuyer] = useState(getEmptyBuyer)
+  const { user, isAuthenticated } = useAuth()
+  const profileBuyer = useMemo(
+    () => (isAuthenticated ? buyerFromUser(user) : getEmptyBuyer()),
+    [isAuthenticated, user],
+  )
+  const hasProfileData = useMemo(() => {
+    if (!isAuthenticated) return false
+    return Boolean(
+      profileBuyer.docNumber ||
+        profileBuyer.names ||
+        profileBuyer.paternalSurname ||
+        profileBuyer.email,
+    )
+  }, [isAuthenticated, profileBuyer])
+  const [buyer, setBuyer] = useState(() =>
+    isAuthenticated ? { ...profileBuyer } : getEmptyBuyer(),
+  )
   const [paymentMethod, setPaymentMethod] = useState('card')
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -785,6 +1061,13 @@ export default function CheckoutPage({
     selectedSeats.length > 0 ? [0] : [],
   )
   const [buyerIsPax1, setBuyerIsPax1] = useState(false)
+  const [useProfileForPax1, setUseProfileForPax1] = useState(false)
+  const [wantsCreateAccount, setWantsCreateAccount] = useState(false)
+  const [timeLeft, setTimeLeft] = useState(
+    selectedSeats.length > 0 ? RESERVATION_SECONDS : null,
+  )
+  const [showExpiredModal, setShowExpiredModal] = useState(false)
+  const expiredHandledRef = useRef(false)
 
   const handleToggleExpandPax = useCallback((index) => {
     setExpandedPax((prev) =>
@@ -808,6 +1091,79 @@ export default function CheckoutPage({
     },
     [passengers],
   )
+
+  const handleToggleUseProfileForPax1 = useCallback(
+    (checked) => {
+      setUseProfileForPax1(checked)
+      if (checked && passengers[0]) {
+        const p0 = passengers[0]
+        setPassengers((prev) =>
+          prev.map((p, i) =>
+            i === 0
+              ? {
+                  ...p,
+                  docType: profileBuyer.docType || p.docType,
+                  docNumber: profileBuyer.docNumber || p.docNumber,
+                  names: profileBuyer.names || p.names,
+                  paternalSurname:
+                    profileBuyer.paternalSurname || p.paternalSurname,
+                  maternalSurname:
+                    profileBuyer.maternalSurname || p.maternalSurname,
+                }
+              : p,
+          ),
+        )
+        setExpandedPax((prev) => (prev.includes(0) ? prev : [...prev, 0]))
+        console.log(
+          '[Checkout] Datos de perfil copiados al Pasajero 1',
+          { p0Doc: p0.docNumber, profile: profileBuyer },
+        )
+      }
+    },
+    [passengers, profileBuyer],
+  )
+
+  const buyerReadOnlyReason = isAuthenticated
+    ? 'Estos datos vienen de tu perfil y se usarán para emitir el comprobante.'
+    : null
+
+  useEffect(() => {
+    if (selectedSeats.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTimeLeft(null)
+      expiredHandledRef.current = false
+      return
+    }
+    if (timeLeft == null) {
+      setTimeLeft(RESERVATION_SECONDS)
+      return
+    }
+    if (timeLeft <= 0) return
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0))
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [selectedSeats.length, timeLeft])
+
+  useEffect(() => {
+    if (timeLeft === 0 && selectedSeats.length > 0 && !expiredHandledRef.current) {
+      expiredHandledRef.current = true
+      setShowExpiredModal(true)
+    }
+  }, [timeLeft, selectedSeats.length])
+
+  const handleAcceptExpired = useCallback(() => {
+    setShowExpiredModal(false)
+    setTimeLeft(null)
+    expiredHandledRef.current = false
+    clearSessionToken()
+    clearCheckoutSeatsStorage()
+    if (idViaje) {
+      navigate(`/viaje/${idViaje}/asientos`, { replace: true })
+    } else {
+      navigate('/', { replace: true })
+    }
+  }, [idViaje, navigate])
 
   const handleBack = useCallback(() => {
     if (typeof onBack === 'function') {
@@ -935,6 +1291,8 @@ export default function CheckoutPage({
       setPassengers([])
       setBuyer(getEmptyBuyer())
       setAcceptedTerms(false)
+      setUseProfileForPax1(false)
+      setWantsCreateAccount(false)
       onPaymentSuccess?.({ passengers, buyer, paymentMethod })
 
       navigate('/checkout/success', {
@@ -966,7 +1324,11 @@ export default function CheckoutPage({
   return (
     <div className="min-h-screen bg-neutral-100">
       <div className="hidden md:block">
-        <Navbar onNavigate={onNavigate} active="buscar" />
+        <Navbar
+          onNavigate={onNavigate}
+          active="buscar"
+          timerSlot={<ReservationTimerBadge timeLeft={timeLeft} />}
+        />
         <div className="max-w-7xl mx-auto p-8 flex flex-col gap-6">
           <button
             type="button"
@@ -987,6 +1349,14 @@ export default function CheckoutPage({
               onToggleExpandPax={handleToggleExpandPax}
               buyerIsPax1={buyerIsPax1}
               onToggleBuyerIsPax1={handleToggleBuyerIsPax1}
+              isLoggedIn={isAuthenticated}
+              useProfileForPax1={useProfileForPax1}
+              onToggleUseProfileForPax1={handleToggleUseProfileForPax1}
+              hasProfileData={hasProfileData}
+              buyerReadOnlyReason={buyerReadOnlyReason}
+              showCreateAccountCheckbox={!isAuthenticated}
+              createAccountChecked={wantsCreateAccount}
+              onToggleCreateAccount={setWantsCreateAccount}
             />
 
             <aside className="flex flex-col gap-6">
@@ -1049,6 +1419,10 @@ export default function CheckoutPage({
                   expanded={expandedPax.includes(i)}
                   onToggleExpand={() => handleToggleExpandPax(i)}
                   onChange={handleChangePassenger}
+                  showUseProfileCheckbox={isAuthenticated && i === 0}
+                  useProfileForPax1={isAuthenticated && i === 0 ? useProfileForPax1 : false}
+                  onToggleUseProfileForPax1={handleToggleUseProfileForPax1}
+                  hasProfileData={hasProfileData}
                 />
               ))}
             </div>
@@ -1060,6 +1434,11 @@ export default function CheckoutPage({
               onChange={setBuyer}
               buyerIsPax1={buyerIsPax1}
               onToggleBuyerIsPax1={handleToggleBuyerIsPax1}
+              isLoggedIn={isAuthenticated}
+              buyerReadOnlyReason={buyerReadOnlyReason}
+              showCreateAccountCheckbox={!isAuthenticated}
+              createAccountChecked={wantsCreateAccount}
+              onToggleCreateAccount={setWantsCreateAccount}
             />
           </article>
 
@@ -1117,6 +1496,8 @@ export default function CheckoutPage({
 
         <BottomNav active="buscar" onNavigate={onNavigate} />
       </div>
+
+      <ExpiredModal open={showExpiredModal} onAccept={handleAcceptExpired} />
     </div>
   )
 }

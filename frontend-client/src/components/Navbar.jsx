@@ -3,6 +3,7 @@ import {
   Bus,
   Compass,
   ChevronDown,
+  UserRound,
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -123,6 +124,15 @@ function AvatarMenu({ user, onNavigate, onLogout }) {
             <button
               type="button"
               role="menuitem"
+              onClick={() => handleNavigate('perfil')}
+              className="w-full text-left hover:bg-neutral-50 px-4 py-2.5 flex items-center gap-3 text-sm text-neutral-700"
+            >
+              <UserRound className="w-4 h-4 text-neutral-500" />
+              Mi Perfil
+            </button>
+            <button
+              type="button"
+              role="menuitem"
               onClick={() => handleNavigate('mis-viajes')}
               className="w-full text-left hover:bg-neutral-50 px-4 py-2.5 flex items-center gap-3 text-sm text-neutral-700"
             >
@@ -179,6 +189,7 @@ export default function Navbar({
   active,
   hideNavItems = false,
   authSlot,
+  timerSlot,
   onLoginClick,
   onLogoClick,
 }) {
@@ -200,7 +211,8 @@ export default function Navbar({
       <LogoButton onLogoClick={onLogoClick} />
 
       {authSlot ? null : hideNavItems ? null : (
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-3">
+          {timerSlot}
           {isAuthenticated && (
             <>
               {NAV_ITEMS.map(({ id, label, icon: Icon }) => {

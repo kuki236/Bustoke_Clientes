@@ -196,3 +196,60 @@ class CheckoutResponse(BaseModel):
     pago: PagoRead
     rampa_embarque: str = Field(..., description="RF-11")
     numero_asiento: str
+
+
+# ============================================================================
+# HISTORIAL DE BOLETOS POR USUARIO (RF-11 / RF-21)
+# ============================================================================
+
+
+class BoletoHistorialItem(BaseModel):
+    """
+    Item del historial de viajes del usuario autenticado.
+
+    Consolida en un único payload los datos necesarios para pintar
+    la tarjeta del viaje en `HistoryPage.jsx`:
+      - Datos del viaje (ruta, horarios, rampa, empresa).
+      - Datos del asiento (número, piso, tipo de servicio).
+      - Datos del boleto (QR, precio, estado de uso).
+      - Estado derivado del viaje: `Pendiente` (futuro) o
+        `Completado` (la salida ya ocurrió).
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id_boleto: int
+    codigo_qr: str
+    estado: str = Field(..., description="Estado del boleto: 'activo' o 'cancelado'")
+    usado: bool
+    precio_final: Decimal
+    fecha_emision: datetime
+
+    # Viaje
+    id_viaje: int
+    fecha_hora_salida: datetime
+    fecha_hora_llegada: datetime
+    estado_viaje: str
+    rampa_embarque: str
+    origen: str = Field(..., description="Nombre del terminal de origen")
+    destino: str = Field(..., description="Nombre del terminal de destino")
+    empresa: str = Field(..., description="Razón social de la agencia operadora")
+    placa_bus: Optional[str] = None
+
+    # Asiento
+    numero_asiento: str
+    piso: int
+    tipo_servicio: str
+
+    # Derivado para UI
+    status: str = Field(
+        ...,
+        description="'Pendiente' si la salida es futura, 'Completado' en otro caso",
+    )
+
+
+class HistorialBoletosResponse(BaseModel):
+    """Respuesta del endpoint `GET /v1/boletos/historial`."""
+
+    total: int = Field(..., ge=0)
+    items: List[BoletoHistorialItem]

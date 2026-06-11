@@ -59,6 +59,14 @@ class PasajeroRepository:
             )
         return row.id_tipo_documento
 
+    def get_tipo_documento(self, id_tipo_documento: int) -> Optional[TipoDocumento]:
+        """Devuelve el `TipoDocumento` por id (o `None` si no existe)."""
+        return (
+            self.db.query(TipoDocumento)
+            .filter(TipoDocumento.id_tipo_documento == id_tipo_documento)
+            .first()
+        )
+
     def add(self, pasajero: Pasajero) -> None:
         """
         Encola un `Pasajero` en la `UnitOfWork` actual.
