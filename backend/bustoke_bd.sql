@@ -141,16 +141,33 @@ CREATE TABLE tarifas_ruta (
     CONSTRAINT uq_ruta_servicio UNIQUE (id_ruta, tipo_servicio)
 );
 
+-- Tabla de Choferes (Exclusivo para Manifiesto SUTRAN - Sin acceso al sistema)
+CREATE TABLE choferes (
+    id_chofer SERIAL PRIMARY KEY,
+    id_agencia INTEGER NOT NULL,
+    id_tipo_documento INTEGER NOT NULL,
+    numero_documento VARCHAR(20) UNIQUE NOT NULL,
+    nombres VARCHAR(100) NOT NULL,
+    apellido_paterno VARCHAR(100) NOT NULL,
+    apellido_materno VARCHAR(100) NOT NULL,
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    fecha_registro TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_choferes_agencia FOREIGN KEY (id_agencia) REFERENCES agencias(id_agencia) ON DELETE RESTRICT,
+    CONSTRAINT fk_choferes_doc FOREIGN KEY (id_tipo_documento) REFERENCES tipos_documento(id_tipo_documento) ON DELETE RESTRICT
+);
+
 CREATE TABLE viajes (
     id_viaje SERIAL PRIMARY KEY,
     id_ruta INTEGER NOT NULL,
     id_bus INTEGER NOT NULL,
+    id_chofer INTEGER NULL,
     fecha_hora_salida TIMESTAMP NOT NULL,
     fecha_hora_llegada TIMESTAMP NOT NULL, 
     estado estado_viaje NOT NULL DEFAULT 'programado',
     rampa_embarque VARCHAR(50) NOT NULL DEFAULT 'Por asignar',
     CONSTRAINT fk_viajes_ruta FOREIGN KEY (id_ruta) REFERENCES rutas(id_ruta) ON DELETE RESTRICT,
     CONSTRAINT fk_viajes_bus FOREIGN KEY (id_bus) REFERENCES buses(id_bus) ON DELETE RESTRICT,
+    CONSTRAINT fk_viajes_chofer FOREIGN KEY (id_chofer) REFERENCES choferes(id_chofer) ON DELETE RESTRICT,
     CONSTRAINT chk_horarios CHECK (fecha_hora_llegada > fecha_hora_salida)
 );
 
@@ -634,7 +651,110 @@ INSERT INTO tarifas_ruta (id_ruta, tipo_servicio, precio) VALUES
 (13, 'normal', 55.00), (13, 'vip', 85.00);
 
 
--- 3. Generación Masiva y Automatizada de Viajes (Mañana, Tarde, Noche en los próximos 5 días)
+-- 2.5. Registro Masivo de Choferes por Agencia (10 por agencia = 40 totales para Manifiesto SUTRAN)
+DO $$
+DECLARE
+    v_id_agencia INT;
+    v_nombres TEXT[] := ARRAY['Roberto', 'Miguel', 'Jorge', 'Luis', 'Pedro', 'Carlos', 'José', 'Andrés', 'Ricardo', 'Fernando'];
+    v_paternos TEXT[] := ARRAY['Mendoza', 'Torres', 'Quispe', 'Ramos', 'Reyes', 'Pérez', 'Castro', 'Chávez', 'Luna', 'Vargas'];
+    v_maternos TEXT[] := ARRAY['Salazar', 'Huamán', 'Ramírez', 'Flores', 'Sánchez', 'Díaz', 'Espinoza', 'Rojas', 'Benitez', 'Campos'];
+    v_chofer_counter INT := 1;
+    v_dni TEXT;
+BEGIN
+    FOR v_id_agencia IN 1..4 LOOP
+        FOR i IN 1..10 LOOP
+            v_dni := LPAD((40000000 + v_id_agencia * 1000 + i)::TEXT, 8, '0');
+            INSERT INTO choferes (id_chofer, id_agencia, id_tipo_documento, numero_documento, nombres, apellido_paterno, apellido_materno)
+            VALUES (
+                v_chofer_counter,
+                v_id_agencia,
+                1, -- DNI
+                v_dni,
+                v_nombres[i],
+                v_paternos[i],
+                v_maternos[i]
+            );
+            v_chofer_counter := v_chofer_counter + 1;
+        END LOOP;
+    END LOOP;
+END $$;
+
+
+-- 3. Generación Masiva de Viajes Programados (22 Junio - 12 Julio 2026) con Asignación de Choferes
+--    4-5 salidas por destino por día
+DO $$
+DECLARE
+    v_id_ruta INT;
+    v_id_agencia INT;
+    v_id_bus INT;
+    v_id_chofer INT;
+    v_fecha_base TIMESTAMP := '2026-06-22 00:00:00';
+    v_dias_totales INT := 21;  -- 22 jun a 12 jul
+    v_salida TIMESTAMP;
+    v_llegada TIMESTAMP;
+    v_duracion_horas INT;
+    v_rampa VARCHAR(50);
+    v_viaje_counter INT := 1;
+    v_turnos_dia INT;
+    v_horarios TIME[] := ARRAY['07:00:00'::TIME, '11:00:00'::TIME, '15:30:00'::TIME, '20:00:00'::TIME, '22:30:00'::TIME];
+    v_horario TIME;
+    v_num_choferes INT;
+BEGIN
+    FOR v_id_ruta IN SELECT id_ruta FROM rutas LOOP
+        SELECT id_agencia INTO v_id_agencia FROM rutas WHERE id_ruta = v_id_ruta;
+
+        SELECT COUNT(*) INTO v_num_choferes FROM choferes WHERE id_agencia = v_id_agencia AND activo = TRUE;
+        IF v_num_choferes = 0 THEN v_num_choferes := 1; END IF;
+
+        IF v_id_ruta IN (1, 2, 5, 6) THEN v_duracion_horas := 8;
+        ELSIF v_id_ruta IN (3, 4, 7) THEN v_duracion_horas := 16;
+        ELSIF v_id_ruta IN (8, 9) THEN v_duracion_horas := 12;
+        ELSIF v_id_ruta IN (10, 11) THEN v_duracion_horas := 20;
+        ELSE v_duracion_horas := 7;
+        END IF;
+
+        FOR v_dia IN 0..(v_dias_totales - 1) LOOP
+            -- Alterna 5 turnos (días pares) y 4 turnos (días impares) por destino
+            v_turnos_dia := CASE WHEN v_dia % 2 = 0 THEN 5 ELSE 4 END;
+
+            FOR v_turno IN 1..v_turnos_dia LOOP
+                v_horario := v_horarios[v_turno];
+                v_salida := v_fecha_base + (v_dia || ' days')::INTERVAL + v_horario;
+                v_llegada := v_salida + (v_duracion_horas || ' hours')::INTERVAL;
+
+                v_rampa := 'Andén ' || ((v_turno % 4) + 1) || ' - Rampa ' || ((v_id_ruta + v_turno + v_dia) % 15 + 1);
+
+                -- Bus round-robin dentro de la flota de la agencia
+                SELECT id_bus INTO v_id_bus
+                FROM buses
+                WHERE id_agencia = v_id_agencia
+                ORDER BY id_bus
+                OFFSET ((v_dia + v_turno) % 10) LIMIT 1;
+
+                -- Chofer round-robin de la misma agencia
+                SELECT id_chofer INTO v_id_chofer
+                FROM choferes
+                WHERE id_agencia = v_id_agencia AND activo = TRUE
+                ORDER BY id_chofer
+                OFFSET ((v_dia + v_turno) % v_num_choferes) LIMIT 1;
+
+                INSERT INTO viajes (id_viaje, id_ruta, id_bus, id_chofer, fecha_hora_salida, fecha_hora_llegada, estado, rampa_embarque)
+                VALUES (
+                    v_viaje_counter,
+                    v_id_ruta,
+                    v_id_bus,
+                    v_id_chofer,
+                    v_salida,
+                    v_llegada,
+                    'programado',
+                    v_rampa
+                );
+
+                v_viaje_counter := v_viaje_counter + 1;
+            END LOOP;
+        END LOOP;
+    END LOOP;
+END $$;
 DO $$
 DECLARE
     v_id_ruta INT;
@@ -905,6 +1025,7 @@ SELECT setval('asientos_id_asiento_seq', COALESCE((SELECT MAX(id_asiento)+1 FROM
 SELECT setval('rutas_id_ruta_seq', COALESCE((SELECT MAX(id_ruta)+1 FROM rutas), 1), false);
 SELECT setval('tarifas_ruta_id_tarifa_seq', COALESCE((SELECT MAX(id_tarifa)+1 FROM tarifas_ruta), 1), false);
 SELECT setval('viajes_id_viaje_seq', COALESCE((SELECT MAX(id_viaje)+1 FROM viajes), 1), false);
+SELECT setval('choferes_id_chofer_seq', COALESCE((SELECT MAX(id_chofer)+1 FROM choferes), 1), false);
 SELECT setval('usuarios_id_usuario_seq', COALESCE((SELECT MAX(id_usuario)+1 FROM usuarios), 1), false);
 SELECT setval('pasajeros_id_pasajero_seq', COALESCE((SELECT MAX(id_pasajero)+1 FROM pasajeros), 1), false);
 SELECT setval('boletos_id_boleto_seq', COALESCE((SELECT MAX(id_boleto)+1 FROM boletos), 1), false);
