@@ -85,6 +85,12 @@ class BookingService:
 
             total = Decimal("0")
             boletos_emitidos: List[dict] = []
+            # Atajos para el email de confirmación (RF-08): los joinedload
+            # de get_viaje garantizan que estos atributos estén cargados.
+            ruta = viaje.ruta if viaje else None
+            bus = viaje.bus if viaje else None
+            agencia = bus.agencia if bus else None
+            chofer = getattr(viaje, "chofer", None) if viaje else None
 
             for pax in payload.pasajeros:
                 existing = self.repo.get_pasajero_by_doc(pax.numero_documento)
@@ -180,7 +186,9 @@ class BookingService:
                             "placa_bus": bus.placa if bus else None,
                             "numero_asiento": asiento.numero_asiento,
                             "tipo_servicio": asiento.tipo_servicio,
-                            "chofer": getattr(viaje, "chofer", None),
+                            "chofer_nombre": (
+                                chofer.nombre_completo if chofer else ""
+                            ),
                         },
                     }
                 )
@@ -188,13 +196,8 @@ class BookingService:
             self.repo.mark_holds_as_converted(holds)
 
         # La transacción ya confirmó: enviar emails (no fallan la compra
-        # si Resend no está configurado o si la red está caída).
+        # si SMTP no está configurado o si la red está caída).
         for item in email_payloads:
-            chofer = item["boleto"].pop("chofer", None)
-            if chofer is not None and hasattr(chofer, "nombre_completo"):
-                item["boleto"]["chofer_nombre"] = chofer.nombre_completo
-            else:
-                item["boleto"]["chofer_nombre"] = ""
             self.email_service.send_compra_confirmation(
                 to_email=item["to_email"],
                 boleto=item["boleto"],

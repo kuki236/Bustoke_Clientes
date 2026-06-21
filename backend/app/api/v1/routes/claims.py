@@ -99,7 +99,7 @@ def create_claim(
             "detalle": payload.detalle,
         }
     )
-    # Email de acuse (best-effort, no falla el flujo si Resend no está)
+    # Email de acuse (best-effort, no falla el flujo si SMTP no está)
     email = _user_email(db, current_user_id)
     if email:
         get_email_service().send_claim_received(email, _to_reclamo_read(reclamo).model_dump())

@@ -1,22 +1,24 @@
 """
-Servicio de Email transaccional vía Resend (RF-08).
+Servicio de Email transaccional vía SMTP (RF-08).
 
-Soporta:
-- Confirmación de compra con PDF adjunto
-- Acuse de recibo de reclamo
-- Respuesta del admin al reclamo (RF-19)
+Si `SMTP_HOST` está configurado, envía emails usando SMTP genérico
+(Gmail, Mailtrap, SendGrid SMTP, etc.). Si no está configurado,
+opera en modo `disabled` y los métodos devuelven `False` sin
+lanzar excepciones (graceful degradation, no rompe el flujo de
+compra/reclamo).
 
-Si `RESEND_API_KEY` no está configurada, el servicio opera en modo
-`disabled` y todas las llamadas devuelven `False` sin lanzar
-excepciones. Esto permite que el resto del sistema siga funcionando
-aunque el email no esté configurado todavía.
+**Para Gmail SMTP (sin dominio propio):**
+- Activá 2FA en tu cuenta Google
+- Generá App Password en https://myaccount.google.com/apppasswords
+- Configurá `SMTP_USER` con tu email y `SMTP_PASSWORD` con el
+  App Password de 16 caracteres.
 """
 
 import logging
 import os
+import smtplib
+from email.message import EmailMessage
 from typing import Optional
-
-import resend
 
 from app.services.pdf_service import generate_ticket_pdf
 
@@ -24,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Templates HTML (inline para evitar dependencia de Jinja en este módulo)
+# Templates HTML
 # ---------------------------------------------------------------------------
 
 _BRAND = "#2563eb"
@@ -160,26 +162,95 @@ def _render_claim_responded_html(reclamo: dict, respuesta: str, estado: str) -> 
 # ---------------------------------------------------------------------------
 
 class EmailService:
-    """Wrapper de Resend con graceful degradation."""
+    """Wrapper SMTP genérico con graceful degradation."""
 
     def __init__(self) -> None:
-        self.api_key = os.getenv("RESEND_API_KEY", "").strip()
-        self.from_email = os.getenv(
-            "RESEND_FROM_EMAIL",
-            "BUSTOKE <onboarding@resend.dev>",
-        ).strip()
-        self.enabled = bool(self.api_key)
-        if self.enabled:
-            resend.api_key = self.api_key
-            logger.info("EmailService inicializado (Resend habilitado)")
+        self.smtp_host = os.getenv("SMTP_HOST", "").strip()
+        self.smtp_port = int(os.getenv("SMTP_PORT", "587") or "587")
+        self.smtp_user = os.getenv("SMTP_USER", "").strip()
+        self.smtp_password = os.getenv("SMTP_PASSWORD", "").strip()
+        self.smtp_from = os.getenv("SMTP_FROM_EMAIL", "").strip() or self.smtp_user
+        self.smtp_use_tls = os.getenv("SMTP_USE_TLS", "true").lower() in (
+            "1", "true", "yes"
+        )
+        self.smtp_enabled = bool(
+            self.smtp_host and self.smtp_user and self.smtp_password
+        )
+
+        if self.smtp_enabled:
+            logger.info(
+                "EmailService: SMTP habilitado (host=%s from=%s)",
+                self.smtp_host,
+                self.smtp_from,
+            )
         else:
             logger.warning(
-                "EmailService en modo disabled: RESEND_API_KEY no configurada. "
-                "Los emails no se enviarán hasta configurarla."
+                "EmailService en modo disabled: SMTP_HOST no está configurado. "
+                "Los emails no se enviarán hasta configurarlo."
             )
 
+    @property
+    def enabled(self) -> bool:
+        return self.smtp_enabled
+
+    @property
+    def primary_from(self) -> str:
+        return self.smtp_from or self.smtp_user
+
+    def _send_smtp(
+        self,
+        to_email: str,
+        subject: str,
+        html: str,
+        text: str,
+        attachment: Optional[tuple[str, bytes]] = None,
+    ) -> bool:
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = self.smtp_from
+        msg["To"] = to_email
+        msg.set_content(text)
+        msg.add_alternative(html, subtype="html")
+        if attachment is not None:
+            filename, content = attachment
+            msg.add_attachment(
+                content,
+                maintype="application",
+                subtype="pdf",
+                filename=filename,
+            )
+        try:
+            if self.smtp_use_tls:
+                with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=15) as srv:
+                    srv.ehlo()
+                    srv.starttls()
+                    srv.ehlo()
+                    srv.login(self.smtp_user, self.smtp_password)
+                    srv.send_message(msg)
+            else:
+                with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=15) as srv:
+                    srv.login(self.smtp_user, self.smtp_password)
+                    srv.send_message(msg)
+            logger.info("[SMTP] email enviado a %s via %s", to_email, self.smtp_host)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[SMTP] fallo enviando a %s: %s", to_email, exc)
+            return False
+
+    def _send(
+        self,
+        to_email: str,
+        subject: str,
+        html: str,
+        text: str,
+        attachment: Optional[tuple[str, bytes]] = None,
+    ) -> bool:
+        if not self.smtp_enabled:
+            return False
+        return self._send_smtp(to_email, subject, html, text, attachment)
+
     # ------------------------------------------------------------------
-    # Compra / Boleto (RF-08)
+    # API pública
     # ------------------------------------------------------------------
     def send_compra_confirmation(
         self,
@@ -187,69 +258,41 @@ class EmailService:
         boleto: dict,
         codigo_reserva: str,
     ) -> bool:
-        """
-        Envía la confirmación de compra con el PDF del boleto adjunto.
-        El dict `boleto` debe tener todos los campos que usa
-        `generate_ticket_pdf`.
-        """
-        if not self.enabled:
-            logger.info("send_compra_confirmation: email deshabilitado, omitido")
+        if not self.enabled or not to_email:
             return False
-        if not to_email:
-            logger.warning("send_compra_confirmation: to_email vacío, omitido")
-            return False
-        try:
-            pdf_bytes = generate_ticket_pdf(
-                {**boleto, "codigo_qr": boleto.get("codigo_qr", codigo_reserva)}
-            )
-            payload = {
-                "from": self.from_email,
-                "to": [to_email],
-                "subject": (
-                    f"Tu boleto Bustoke - "
-                    f"{boleto.get('origen', '')} → {boleto.get('destino', '')}"
-                ),
-                "html": _render_compra_html(
-                    {**boleto, "codigo_reserva": codigo_reserva}
-                ),
-                "attachments": [
-                    {
-                        "filename": f"boleto-bustoke-{codigo_reserva}.pdf",
-                        "content": list(pdf_bytes),
-                    }
-                ],
-            }
-            r = resend.Emails.send(payload)
-            logger.info(
-                "Email de compra enviado a %s (id=%s)", to_email, r.get("id", "?")
-            )
-            return True
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Error enviando email de compra: %s", exc)
-            return False
+        pdf_bytes = generate_ticket_pdf(
+            {**boleto, "codigo_qr": boleto.get("codigo_qr", codigo_reserva)}
+        )
+        return self._send(
+            to_email=to_email,
+            subject=(
+                f"Tu boleto Bustoke - "
+                f"{boleto.get('origen', '')} → {boleto.get('destino', '')}"
+            ),
+            html=_render_compra_html({**boleto, "codigo_reserva": codigo_reserva}),
+            text=(
+                f"Tu compra fue confirmada. Código de reserva: {codigo_reserva}. "
+                "Adjuntamos tu boleto en PDF."
+            ),
+            attachment=(f"boleto-bustoke-{codigo_reserva}.pdf", pdf_bytes),
+        )
 
-    # ------------------------------------------------------------------
-    # Reclamos (RF-10, RF-19)
-    # ------------------------------------------------------------------
     def send_claim_received(self, to_email: str, reclamo: dict) -> bool:
         if not self.enabled or not to_email:
             return False
-        try:
-            resend.Emails.send(
-                {
-                    "from": self.from_email,
-                    "to": [to_email],
-                    "subject": (
-                        f"Reclamo REC-{str(reclamo.get('id_reclamo', 0)).zfill(6)} "
-                        f"recibido"
-                    ),
-                    "html": _render_claim_received_html(reclamo),
-                }
-            )
-            return True
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Error enviando acuse de reclamo: %s", exc)
-            return False
+        return self._send(
+            to_email=to_email,
+            subject=(
+                f"Reclamo REC-{str(reclamo.get('id_reclamo', 0)).zfill(6)} "
+                f"recibido"
+            ),
+            html=_render_claim_received_html(reclamo),
+            text=(
+                f"Hemos registrado tu reclamo "
+                f"REC-{str(reclamo.get('id_reclamo', 0)).zfill(6)}. "
+                f"Motivo: {reclamo.get('motivo', '')}"
+            ),
+        )
 
     def send_claim_responded(
         self,
@@ -260,27 +303,21 @@ class EmailService:
     ) -> bool:
         if not self.enabled or not to_email:
             return False
-        try:
-            resend.Emails.send(
-                {
-                    "from": self.from_email,
-                    "to": [to_email],
-                    "subject": (
-                        f"Tu reclamo REC-{str(reclamo.get('id_reclamo', 0)).zfill(6)} "
-                        f"tiene respuesta"
-                    ),
-                    "html": _render_claim_responded_html(
-                        reclamo, respuesta, estado
-                    ),
-                }
-            )
-            return True
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Error enviando respuesta de reclamo: %s", exc)
-            return False
+        return self._send(
+            to_email=to_email,
+            subject=(
+                f"Tu reclamo REC-{str(reclamo.get('id_reclamo', 0)).zfill(6)} "
+                f"tiene respuesta"
+            ),
+            html=_render_claim_responded_html(reclamo, respuesta, estado),
+            text=(
+                f"Tu reclamo REC-{str(reclamo.get('id_reclamo', 0)).zfill(6)} "
+                f"tiene respuesta. Estado: {estado}."
+            ),
+        )
 
 
-# Singleton (el servicio es stateless después del __init__)
+# Singleton
 _email_service: Optional[EmailService] = None
 
 
