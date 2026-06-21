@@ -26,6 +26,7 @@ from app.models.enums import estado_viaje_enum
 
 if TYPE_CHECKING:
     from app.models.bus import Bus
+    from app.models.chofer import Chofer
     from app.models.route import Ruta
     from app.models.transaction import Boleto, BloqueoTemporal
     from app.models.user import Usuario
@@ -49,6 +50,7 @@ class Viaje(Base):
         ),
         Index("fk_viajes_ruta", "id_ruta"),
         Index("fk_viajes_bus", "id_bus"),
+        Index("fk_viajes_chofer", "id_chofer"),
     )
 
     id_viaje: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -62,6 +64,11 @@ class Viaje(Base):
         ForeignKey("buses.id_bus", ondelete="RESTRICT"),
         nullable=False,
     )
+    id_chofer: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("choferes.id_chofer", ondelete="RESTRICT"),
+        nullable=True,
+    )
     fecha_hora_salida: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     fecha_hora_llegada: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     estado: Mapped[str] = mapped_column(
@@ -73,6 +80,7 @@ class Viaje(Base):
 
     ruta: Mapped["Ruta"] = relationship("Ruta", back_populates="viajes")
     bus: Mapped["Bus"] = relationship("Bus", back_populates="viajes")
+    chofer: Mapped["Chofer | None"] = relationship("Chofer", back_populates="viajes")
     boletos: Mapped[List["Boleto"]] = relationship(
         "Boleto", back_populates="viaje", cascade="all, delete-orphan"
     )

@@ -1,8 +1,4 @@
 
-select * from usuarios;
-
-UPDATE usuarios SET password_hash = '$2b$12$OaA416NBJnuf4DrTqP/C/uMPUIaXSOrjeEV0Zdvl.D0rKzvx2ljJW' WHERE id_usuario = 45;
-
 -- =============================================================================
 -- 1. CONFIGURACIÓN INICIAL Y PROTECCIÓN
 -- =============================================================================
@@ -755,76 +751,6 @@ BEGIN
         END LOOP;
     END LOOP;
 END $$;
-DO $$
-DECLARE
-    v_id_ruta INT;
-    v_id_agencia INT;
-    v_id_bus INT;
-    v_fecha_base TIMESTAMP := '2026-06-08 00:00:00'; -- Simula salidas estables programadas a futuro
-    v_salida TIMESTAMP;
-    v_llegada TIMESTAMP;
-    v_duracion_horas INT;
-    v_rampa VARCHAR(50);
-    v_viaje_counter INT := 1;
-BEGIN
-    -- Iteramos por cada una de las rutas comerciales configuradas
-    FOR v_id_ruta IN SELECT id_ruta FROM rutas LOOP
-        
-        -- Extraemos la agencia dueña de la ruta para asignarle un bus de su propia flota
-        SELECT id_agencia INTO v_id_agencia FROM rutas WHERE id_ruta = v_id_ruta;
-        
-        -- Definimos la duración estimada del viaje según la distancia típica del tramo peruano
-        IF v_id_ruta IN (1, 2, 5, 6) THEN v_duracion_horas := 8;     -- Lima <-> Trujillo
-        ELSIF v_id_ruta IN (3, 4, 7) THEN v_duracion_horas := 16;   -- Lima <-> Arequipa
-        ELSIF v_id_ruta IN (8, 9) THEN v_duracion_horas := 12;      -- Lima <-> Chiclayo
-        ELSIF v_id_ruta IN (10, 11) THEN v_duracion_horas := 20;    -- Lima <-> Cusco
-        ELSE v_duracion_horas := 7;                                 -- Lima <-> Huancayo
-        END IF;
-
-        -- Programamos itinerarios diarios para los próximos 5 días consecutivos (Abundancia de opciones)
-        FOR v_dia IN 0..4 LOOP
-            
-            -- Iteramos 3 turnos por día (Mañana, Tarde y Noche) para garantizar variedad horaria en la UI
-            FOR v_turno IN 1..3 LOOP
-                
-                -- Ajustamos la hora exacta de salida dependiendo del turno del día
-                IF v_turno = 1 THEN 
-                    v_salida := v_fecha_base + (v_dia || ' days')::INTERVAL + '08:00:00'::INTERVAL; -- Turno Mañana (08:00 AM)
-                    v_rampa := 'Andén Norte - Rampa ' || ((v_id_ruta % 4) + 1);
-                ELSIF v_turno = 2 THEN 
-                    v_salida := v_fecha_base + (v_dia || ' days')::INTERVAL + '14:30:00'::INTERVAL; -- Turno Tarde (02:30 PM)
-                    v_rampa := 'Andén Central - Rampa ' || ((v_id_ruta % 3) + 5);
-                ELSE 
-                    v_salida := v_fecha_base + (v_dia || ' days')::INTERVAL + '21:45:00'::INTERVAL; -- Turno Noche (09:45 PM)
-                    v_rampa := 'Zona de Embarque - Rampa ' || ((v_id_ruta % 5) + 10);
-                END IF;
-
-                -- Calculamos la hora estimada de llegada sumando las horas de tramo a la salida (Mejora 2)
-                v_llegada := v_salida + (v_duracion_horas || ' hours')::INTERVAL;
-
-                -- Seleccionamos un bus de la agencia de forma cíclica para que la flota rote y tenga uso equitativo
-                SELECT id_bus INTO v_id_bus 
-                FROM buses 
-                WHERE id_agencia = v_id_agencia
-                OFFSET ((v_dia + v_turno) % 10) LIMIT 1;
-
-                -- Inserción del registro de salida en el itinerario maestro de Bustoke
-                INSERT INTO viajes (id_viaje, id_ruta, id_bus, fecha_hora_salida, fecha_hora_llegada, estado, rampa_embarque)
-                VALUES (
-                    v_viaje_counter,
-                    v_id_ruta,
-                    v_id_bus,
-                    v_salida,
-                    v_llegada,
-                    'programado',
-                    v_rampa
-                );
-
-                v_viaje_counter := v_viaje_counter + 1;
-            END LOOP;
-        END LOOP;
-    END LOOP;
-END $$;
 
 -- =============================================================================
 -- BLOQUE 4: USUARIOS, PASAJEROS Y CHECKOUT MASIVO (SEED DATA DEFINITIVO)
@@ -1141,8 +1067,6 @@ BEGIN
     SET estado = 'expirado'
     WHERE estado = 'activo'
       AND NOW() >= expira_at;
-      
-    COMMIT;
 END;
 $$;
 

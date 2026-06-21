@@ -11,6 +11,12 @@ function unwrapError(err) {
  * POST /v1/bookings/process
  * Procesa el checkout completo: valida bloqueos del token_sesion,
  * upserta pasajeros, emite boletos con QR y registra el pago.
+ *
+ * Soporta checkout como invitado (RF-02): si el cliente no envía
+ * token Bearer, el backend emite el boleto con `id_usuario = NULL`
+ * y usa el `email_contacto` del payload como identificador de
+ * contacto. El interceptor de axios sólo añade el Authorization
+ * header si hay token en localStorage.
  */
 export async function processBookingRequest(payload) {
   try {

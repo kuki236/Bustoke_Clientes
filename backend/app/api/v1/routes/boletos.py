@@ -23,6 +23,7 @@ from app.models import Asiento, Boleto, Viaje
 from app.repositories.booking_repository import BookingRepository
 from app.schemas.transaction_schema import (
     BoletoHistorialItem,
+    ChoferResumen,
     HistorialBoletosResponse,
 )
 
@@ -122,6 +123,7 @@ async def get_historial_boletos(
         ruta = viaje.ruta if viaje else None
         bus = viaje.bus if viaje else None
         agencia = bus.agencia if bus else None
+        chofer = viaje.chofer if viaje else None
         asiento: Asiento | None = b.asiento
 
         status_label = "Completado" if viaje and viaje.fecha_hora_salida <= now else "Pendiente"
@@ -143,6 +145,17 @@ async def get_historial_boletos(
                 destino=ruta.terminal_destino.nombre if ruta and ruta.terminal_destino else "",
                 empresa=agencia.razon_social if agencia else "",
                 placa_bus=bus.placa if bus else None,
+                chofer=(
+                    ChoferResumen(
+                        id_chofer=chofer.id_chofer,
+                        nombres=chofer.nombres,
+                        apellido_paterno=chofer.apellido_paterno,
+                        apellido_materno=chofer.apellido_materno,
+                        numero_documento=chofer.numero_documento,
+                    )
+                    if chofer
+                    else None
+                ),
                 numero_asiento=asiento.numero_asiento if asiento else "",
                 piso=asiento.piso if asiento else 1,
                 tipo_servicio=asiento.tipo_servicio if asiento else "normal",

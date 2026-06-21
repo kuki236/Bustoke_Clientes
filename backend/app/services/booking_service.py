@@ -1,26 +1,31 @@
 """
 Servicio de Bookings: orquesta el flujo transaccional de compra y
-emisión de boletos (RF-07).
+emisión de boletos (RF-07, RF-08).
 """
 
+import logging
 import secrets
 import uuid
 from decimal import Decimal
-from typing import List
+from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
 from app.repositories.booking_repository import BookingRepository
+from app.services.email_service import EmailService
+
+logger = logging.getLogger(__name__)
 
 
 class BookingService:
     """Lógica de negocio del checkout integral (RF-07)."""
 
-    def __init__(self, db: Session) -> None:
+    def __init__(self, db: Session, email_service: Optional[EmailService] = None) -> None:
         self.db = db
         self.repo = BookingRepository(db)
+        self.email_service = email_service or EmailService()
 
-    def process_booking(self, payload) -> dict:
+    def process_booking(self, payload, id_usuario: Optional[int]) -> dict:
         """
         Procesa la compra completa dentro de un único `db.begin()`:
 
@@ -29,9 +34,14 @@ class BookingService:
         3. Comprueba que los asientos pertenezcan al bus del viaje y
            que ninguno tenga un boleto activo.
         4. Upserta pasajeros (por `numero_documento`).
-        5. Emite un boleto por pasajero con código QR único.
+        5. Emite un boleto por pasajero con código QR único,
+           vinculándolo al `id_usuario` autenticado (o NULL si es
+           guest, RF-02).
         6. Registra un pago por boleto en estado 'completado'.
         7. Marca los bloqueos como 'convertido' para liberar el pool.
+        8. Envía email de confirmación con el PDF del boleto (RF-08)
+           a `email_contacto`. Si el email no está configurado, se
+           omite sin fallar la compra.
         """
         with self.db.begin():
             viaje = self.repo.get_viaje(payload.id_viaje)
@@ -71,6 +81,7 @@ class BookingService:
                 f"{payload.metodo_pago.upper()}-TXT-"
                 f"{secrets.token_hex(4).upper()}"
             )
+            email_payloads: list[dict] = []
 
             total = Decimal("0")
             boletos_emitidos: List[dict] = []
@@ -82,6 +93,7 @@ class BookingService:
                 else:
                     pasajero = self.repo.create_pasajero(
                         {
+                            "id_usuario": id_usuario,
                             "id_tipo_documento": pax.id_tipo_documento,
                             "numero_documento": pax.numero_documento,
                             "nombres": pax.nombres,
@@ -102,6 +114,7 @@ class BookingService:
                 boleto = self.repo.create_boleto(
                     {
                         "id_viaje": payload.id_viaje,
+                        "id_usuario": id_usuario,
                         "id_pasajero": pasajero.id_pasajero,
                         "id_asiento": pax.id_asiento,
                         "email_contacto": payload.comprador.email,
@@ -136,19 +149,68 @@ class BookingService:
                         "pasajero": nombre_completo,
                     }
                 )
+                # Acumula los datos para enviar el email de confirmación
+                # DESPUÉS de que la transacción confirme (RF-08).
+                email_payloads.append(
+                    {
+                        "to_email": boleto.email_contacto,
+                        "boleto": {
+                            "id_boleto": boleto.id_boleto,
+                            "codigo_qr": codigo_qr,
+                            "precio_final": float(precio),
+                            "nombres": pasajero.nombres,
+                            "apellido_paterno": pasajero.apellido_paterno,
+                            "apellido_materno": pasajero.apellido_materno,
+                            "origen": (
+                                ruta.terminal_origen.nombre
+                                if ruta and ruta.terminal_origen
+                                else ""
+                            ),
+                            "destino": (
+                                ruta.terminal_destino.nombre
+                                if ruta and ruta.terminal_destino
+                                else ""
+                            ),
+                            "fecha_hora_salida": viaje.fecha_hora_salida,
+                            "fecha_hora_llegada": viaje.fecha_hora_llegada,
+                            "rampa_embarque": viaje.rampa_embarque,
+                            "empresa": (
+                                agencia.razon_social if agencia else ""
+                            ),
+                            "placa_bus": bus.placa if bus else None,
+                            "numero_asiento": asiento.numero_asiento,
+                            "tipo_servicio": asiento.tipo_servicio,
+                            "chofer": getattr(viaje, "chofer", None),
+                        },
+                    }
+                )
 
             self.repo.mark_holds_as_converted(holds)
 
-            return {
-                "codigo_reserva": codigo_reserva,
-                "id_viaje": payload.id_viaje,
-                "total": total,
-                "estado": "confirmada",
-                "pago": {
-                    "metodo": payload.metodo_pago,
-                    "referencia_transaccion": referencia_transaccion,
-                    "monto_total": total,
-                    "estado": "completado",
-                },
-                "boletos": boletos_emitidos,
-            }
+        # La transacción ya confirmó: enviar emails (no fallan la compra
+        # si Resend no está configurado o si la red está caída).
+        for item in email_payloads:
+            chofer = item["boleto"].pop("chofer", None)
+            if chofer is not None and hasattr(chofer, "nombre_completo"):
+                item["boleto"]["chofer_nombre"] = chofer.nombre_completo
+            else:
+                item["boleto"]["chofer_nombre"] = ""
+            self.email_service.send_compra_confirmation(
+                to_email=item["to_email"],
+                boleto=item["boleto"],
+                codigo_reserva=codigo_reserva,
+            )
+
+        return {
+            "codigo_reserva": codigo_reserva,
+            "id_viaje": payload.id_viaje,
+            "total": total,
+            "estado": "confirmada",
+            "pago": {
+                "metodo": payload.metodo_pago,
+                "referencia_transaccion": referencia_transaccion,
+                "monto_total": total,
+                "estado": "completado",
+            },
+            "boletos": boletos_emitidos,
+        }

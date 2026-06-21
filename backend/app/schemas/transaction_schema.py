@@ -203,6 +203,18 @@ class CheckoutResponse(BaseModel):
 # ============================================================================
 
 
+class ChoferResumen(BaseModel):
+    """Datos públicos del chofer para mostrar al pasajero en su historial."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id_chofer: int
+    nombres: str
+    apellido_paterno: str
+    apellido_materno: str
+    numero_documento: str
+
+
 class BoletoHistorialItem(BaseModel):
     """
     Item del historial de viajes del usuario autenticado.
@@ -212,6 +224,7 @@ class BoletoHistorialItem(BaseModel):
       - Datos del viaje (ruta, horarios, rampa, empresa).
       - Datos del asiento (número, piso, tipo de servicio).
       - Datos del boleto (QR, precio, estado de uso).
+      - Datos del chofer asignado al viaje (si existe).
       - Estado derivado del viaje: `Pendiente` (futuro) o
         `Completado` (la salida ya ocurrió).
     """
@@ -235,6 +248,9 @@ class BoletoHistorialItem(BaseModel):
     destino: str = Field(..., description="Nombre del terminal de destino")
     empresa: str = Field(..., description="Razón social de la agencia operadora")
     placa_bus: Optional[str] = None
+    chofer: Optional[ChoferResumen] = Field(
+        None, description="Datos del chofer asignado al viaje (RF-SUTRAN)"
+    )
 
     # Asiento
     numero_asiento: str

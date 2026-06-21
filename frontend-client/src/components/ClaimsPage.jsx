@@ -2,13 +2,18 @@ import {
   BookText,
   CircleCheckBig,
   ClipboardList,
+  Loader2,
   MessageSquareWarning,
   Send,
+  X,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { fetchHistorialRequest } from '../api/boletos'
+import { createClaimRequest } from '../api/claims'
 import { AGENCIES } from '../data/agencies'
 import { TIPOS_DOCUMENTO } from '../data/tiposDocumento'
+import AvatarMenu from './AvatarMenu'
 import BottomNav from './BottomNav'
 import Navbar from './Navbar'
 
@@ -229,31 +234,88 @@ function SuccessBanner({ trackingCode, onDismiss }) {
 }
 
 function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip = null }) {
+  const { isAuthenticated } = useAuth()
   const initialTipoDoc = (() => {
-    if (initial?.docType) {
+    const docType = initial?.tipo_documento || initial?.docType
+    if (docType) {
       const match = TIPOS_DOCUMENTO.find(
-        (t) => t.nombre === initial.docType,
+        (t) => t.nombre === docType || String(t.id_tipo_documento) === String(docType),
       )
       if (match) return String(match.id_tipo_documento)
     }
     return '1'
   })()
 
-  const [form, setForm] = useState({
-    nombres: initial?.names ?? '',
-    apellido_paterno: initial?.paternalSurname ?? '',
-    apellido_materno: initial?.maternalSurname ?? '',
+  const buildInitialForm = () => ({
+    nombres: initial?.nombres ?? initial?.names ?? '',
+    apellido_paterno: initial?.apellido_paterno ?? initial?.paternalSurname ?? '',
+    apellido_materno: initial?.apellido_materno ?? initial?.maternalSurname ?? '',
+    email_contacto: initial?.email ?? '',
     id_tipo_documento: initialTipoDoc,
-    numero_documento: initial?.docNumber ?? '',
-    id_agencia: findAgencyIdByName(linkedTrip?.company),
+    numero_documento:
+      initial?.numero_documento ?? initial?.docNumber ?? '',
+    id_agencia:
+      findAgencyIdByName(linkedTrip?.company) ||
+      (initial?.id_agencia ? String(initial.id_agencia) : ''),
     tipo_bien: linkedTrip ? 'servicio' : 'producto',
     detalle: buildLinkedDetalle(linkedTrip),
   })
+
+  const [form, setForm] = useState(buildInitialForm)
   const [acceptDeclaration, setAcceptDeclaration] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(null)
-  const isAuthedReadOnly = Boolean(initial?.locked)
+
+  // Selector opcional de "Vincular a un viaje": sólo cuando NO hay un
+  // viaje ya vinculado desde Mis Viajes y el usuario está autenticado.
+  const [userTrips, setUserTrips] = useState([])
+  const [tripsLoading, setTripsLoading] = useState(false)
+  const [selectedTripId, setSelectedTripId] = useState('')
+
+  const effectiveTrip = linkedTrip || userTrips.find((t) => t.id === selectedTripId) || null
+  const showTripSelector = !linkedTrip && isAuthenticated
+
+  useEffect(() => {
+    if (!showTripSelector) {
+      setUserTrips([])
+      setSelectedTripId('')
+      return undefined
+    }
+    let cancelled = false
+    setTripsLoading(true)
+    fetchHistorialRequest()
+      .then((items) => {
+        if (cancelled) return
+        setUserTrips(items)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setUserTrips([])
+      })
+      .finally(() => {
+        if (!cancelled) setTripsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showTripSelector])
+
+  useEffect(() => {
+    setForm((prev) => ({
+      ...buildInitialForm(),
+      detalle: effectiveTrip ? prev.detalle || buildLinkedDetalle(effectiveTrip) : prev.detalle,
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    initial?.nombres,
+    initial?.apellido_paterno,
+    initial?.apellido_materno,
+    initial?.email,
+    initial?.numero_documento,
+    initial?.tipo_documento,
+    linkedTrip?.id,
+  ])
 
   useEffect(() => {
     if (!success) return undefined
@@ -266,7 +328,36 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
-  const handleSubmit = (e) => {
+  const handleSelectTrip = (tripId) => {
+    setSelectedTripId(tripId)
+    const trip = userTrips.find((t) => t.id === tripId)
+    if (!trip) {
+      setForm((prev) => ({
+        ...prev,
+        tipo_bien: 'producto',
+        detalle: prev.detalle.replace(/^\[.*?\]\s*-\s*/, ''),
+      }))
+      return
+    }
+    setForm((prev) => ({
+      ...prev,
+      id_agencia: findAgencyIdByName(trip.company) || prev.id_agencia,
+      tipo_bien: 'servicio',
+      detalle: buildLinkedDetalle(trip),
+    }))
+  }
+
+  const handleClearTrip = () => {
+    setSelectedTripId('')
+    setForm((prev) => ({
+      ...prev,
+      id_agencia: '',
+      tipo_bien: 'producto',
+      detalle: prev.detalle.replace(/^\[.*?\]\s*-\s*/, ''),
+    }))
+  }
+
+  const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     const required = [
@@ -274,6 +365,7 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
       ['apellido_paterno', 'Apellido Paterno'],
       ['apellido_materno', 'Apellido Materno'],
       ['numero_documento', 'Número de Documento'],
+      ['email_contacto', 'Email de contacto'],
       ['id_agencia', 'Empresa de Transporte'],
       ['detalle', 'Detalle'],
     ]
@@ -293,23 +385,40 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
       return
     }
     setSubmitting(true)
-    setTimeout(() => {
-      setSubmitting(false)
-      const tracking = generateTrackingCode()
+    try {
+      const created = await createClaimRequest({
+        id_agencia: form.id_agencia,
+        motivo: form.detalle.split(/\r?\n/, 1)[0]?.slice(0, 150) || 'Reclamo',
+        detalle: form.detalle,
+        tipo_bien: form.tipo_bien,
+      })
+      const tracking = `REC-${String(created.id_reclamo).padStart(6, '0')}`
       setSuccess(tracking)
       onSubmitted?.({
         ...form,
         trackingCode: tracking,
-        id_usuario: initial?.id_usuario ?? null,
-        email_contacto: initial?.email ?? null,
+        id_usuario: initial?.id_usuario ?? initial?.id ?? null,
+        email_contacto: form.email_contacto,
+        id_viaje: effectiveTrip?.idViaje ?? null,
+        id_boleto: effectiveTrip?.idBoleto ?? null,
+        id_reclamo: created.id_reclamo,
       })
       setForm((prev) => ({
         ...prev,
-        detalle: '',
-        id_agencia: '',
+        detalle: effectiveTrip ? buildLinkedDetalle(effectiveTrip) : '',
+        id_agencia:
+          findAgencyIdByName(effectiveTrip?.company) || prev.id_agencia,
       }))
       setAcceptDeclaration(false)
-    }, 500)
+    } catch (err) {
+      const message =
+        err?.response?.data?.detail ||
+        err?.message ||
+        'No se pudo registrar el reclamo. Intenta de nuevo.'
+      setError(message)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -362,12 +471,10 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
           </h2>
         </header>
 
-        {initial?.locked && (
-          <p className="text-xs text-neutral-500">
-            Estos datos se autocompletan desde tu perfil y no pueden
-            modificarse.
-          </p>
-        )}
+        <p className="text-xs text-neutral-500 -mt-1">
+          Estos datos se precargan desde tu cuenta. Puedes editarlos si
+          necesitas corregirlos.
+        </p>
 
         <TextField
           id="nombres"
@@ -377,7 +484,6 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
           onChange={update('nombres')}
           placeholder="Ej. Juan Carlos"
           autoComplete="given-name"
-          readOnly={isAuthedReadOnly}
           required
         />
         <div className="grid sm:grid-cols-2 gap-4">
@@ -387,9 +493,8 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
             label="Apellido Paterno"
             value={form.apellido_paterno}
             onChange={update('apellido_paterno')}
-            placeholder="Apellido paterno"
+            placeholder="Ej. Pérez"
             autoComplete="family-name"
-            readOnly={isAuthedReadOnly}
             required
           />
           <TextField
@@ -398,9 +503,8 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
             label="Apellido Materno"
             value={form.apellido_materno}
             onChange={update('apellido_materno')}
-            placeholder="Apellido materno"
+            placeholder="Ej. García"
             autoComplete="family-name"
-            readOnly={isAuthedReadOnly}
             required
           />
         </div>
@@ -415,7 +519,6 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
               value: String(t.id_tipo_documento),
               label: t.nombre,
             }))}
-            readOnly={isAuthedReadOnly}
           />
           <TextField
             id="numero_documento"
@@ -426,10 +529,20 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
             placeholder="Ingresa tu número"
             inputMode="numeric"
             autoComplete="off"
-            readOnly={isAuthedReadOnly}
             required
           />
         </div>
+        <TextField
+          id="email_contacto"
+          name="email_contacto"
+          label="Email de Contacto"
+          value={form.email_contacto}
+          onChange={update('email_contacto')}
+          placeholder="tucorreo@ejemplo.com"
+          type="email"
+          autoComplete="email"
+          required
+        />
       </section>
 
       <div className="h-px bg-neutral-100" />
@@ -446,6 +559,77 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
             2. Detalle de la Reclamación
           </h2>
         </header>
+
+        {showTripSelector && (
+          <div className="flex flex-col gap-2 p-4 bg-blue-50/60 border border-blue-100 rounded-xl">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex flex-col">
+                <span className="text-xs font-semibold text-neutral-900">
+                  Vincular a un viaje (opcional)
+                </span>
+                <span className="text-[11px] text-neutral-600 mt-0.5">
+                  Si el reclamo es sobre un viaje específico, selecciónalo
+                  para autocompletar la empresa.
+                </span>
+              </div>
+              {selectedTripId && (
+                <button
+                  type="button"
+                  onClick={handleClearTrip}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 px-2 py-1 rounded-lg hover:bg-white/60 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  Quitar
+                </button>
+              )}
+            </div>
+            <div className="relative">
+              <select
+                id="linked_trip"
+                name="linked_trip"
+                value={selectedTripId}
+                onChange={(e) => handleSelectTrip(e.target.value)}
+                className="w-full appearance-none px-3 py-2.5 pr-9 border border-blue-200 rounded-xl text-sm text-neutral-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                disabled={tripsLoading}
+              >
+                <option value="">
+                  {tripsLoading
+                    ? 'Cargando tus viajes...'
+                    : 'Reclamo general (sin viaje asociado)'}
+                </option>
+                {userTrips.map((trip) => (
+                  <option key={trip.id} value={trip.id}>
+                    {trip.company} · {trip.origin} → {trip.destination} ·{' '}
+                    {trip.date} {trip.departureTime}
+                  </option>
+                ))}
+              </select>
+              {tripsLoading ? (
+                <Loader2 className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-blue-600 animate-spin" />
+              ) : (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              )}
+            </div>
+            {userTrips.length === 0 && !tripsLoading && (
+              <p className="text-[11px] text-neutral-500">
+                Aún no tienes viajes contratados. Puedes enviar el reclamo de
+                todas formas.
+              </p>
+            )}
+          </div>
+        )}
 
         <SelectField
           id="id_agencia"
@@ -556,25 +740,24 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
 }
 
 export default function ClaimsPage({ onNavigate, onBack, linkedTrip = null }) {
-  const { user, isAuthenticated } = useAuth()
+  const { user, isAuthenticated, loading: authLoading } = useAuth()
 
   const initial = (() => {
     if (isAuthenticated && user) {
       return {
-        names: user.names,
-        paternalSurname: user.paternalSurname,
-        maternalSurname: user.maternalSurname,
-        docType: user.docType,
-        docNumber: user.docNumber,
+        nombres: user.nombres,
+        apellido_paterno: user.apellido_paterno,
+        apellido_materno: user.apellido_materno,
+        tipo_documento: user.tipo_documento,
+        numero_documento: user.numero_documento,
         email: user.email,
-        id_usuario: user.id_usuario ?? null,
-        locked: true,
+        id_usuario: user.id_usuario ?? user.id ?? null,
       }
     }
-    return { locked: false }
+    return {}
   })()
 
-  const formKey = linkedTrip?.id ?? 'no-trip'
+  const formKey = `${linkedTrip?.id ?? 'no-trip'}-${user?.id_usuario ?? 'anon'}`
 
   return (
     <div className="min-h-screen bg-neutral-100">
@@ -605,7 +788,7 @@ export default function ClaimsPage({ onNavigate, onBack, linkedTrip = null }) {
       </div>
 
       <div className="block md:hidden pb-24">
-        <div className="bg-blue-600 text-white p-5 flex items-center gap-3">
+        <div className="bg-blue-600 text-white p-5 flex items-center gap-3 relative">
           <button
             type="button"
             onClick={onBack}
@@ -629,6 +812,15 @@ export default function ClaimsPage({ onNavigate, onBack, linkedTrip = null }) {
           <h1 className="flex-1 text-lg font-semibold leading-tight">
             Libro de Reclamaciones
           </h1>
+          {isAuthenticated && user && (
+            <div className="absolute right-3 top-3">
+              <AvatarMenu
+                user={user}
+                onNavigate={onNavigate}
+                variant="light"
+              />
+            </div>
+          )}
         </div>
 
         <main className="p-5 mb-20 flex flex-col gap-6">

@@ -1,6 +1,10 @@
 import { Bus } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
+import AvatarMenu from './AvatarMenu'
 
-export default function MobileHeader() {
+export default function MobileHeader({ onNavigate }) {
+  const { isAuthenticated, user } = useAuth()
+
   return (
     <header className="block md:hidden bg-blue-600 text-white px-5 pt-6 pb-32">
       <div className="flex items-center justify-between">
@@ -8,6 +12,13 @@ export default function MobileHeader() {
           <Bus className="w-6 h-6" />
           <span className="text-lg font-bold tracking-tight">BUSTOKE</span>
         </div>
+        {isAuthenticated && (
+          <AvatarMenu
+            user={user}
+            onNavigate={onNavigate}
+            variant="light"
+          />
+        )}
       </div>
     </header>
   )
