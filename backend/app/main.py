@@ -5,26 +5,54 @@ Punto de entrada principal de la API BUSTOKE.
 - Configura CORS leyendo orígenes permitidos desde `settings`.
 - Incluye el router agregador (`app.api.router`).
 - Define health check y un handler de validación genérico.
+- Configura logging básico e inicializa servicios con side-effects
+  (EmailService, etc.) en el lifespan event.
 """
+
+import logging
 
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+# Carga el .env en el process environment ANTES de cualquier import
+# que lea env vars vía os.getenv(). pydantic-settings (en core.config)
+# tiene su propio loader, pero email_service y otros módulos usan
+# os.getenv() directamente y necesitan que las vars estén exportadas.
+load_dotenv()
+
 from app.api.router import api_router
 from app.core.config import settings
+from app.services.email_service import get_email_service
+
+# Configuración de logging a nivel INFO para que los servicios
+# (EmailService, booking, claims) emitan sus logs de diagnóstico.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+# Silenciar loggers muy verbosos de libs externas
+for noisy in ("httpx", "httpcore", "watchfiles", "sqlalchemy.engine"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """
-    Hook de ciclo de vida. Aquí se inicializarán en el futuro:
-    - Pool de conexiones
-    - Tareas en background (limpieza de bloqueos expirados, etc.)
+    Hook de ciclo de vida:
+    - Inicializa servicios con side-effects (EmailService) para que
+      el log de "EmailService inicializado" aparezca al arrancar.
+    - Tareas en background (limpieza de bloqueos expirados, etc.) se
+      agregarán aquí en el futuro.
     """
+    # Eager init: dispara la lectura de RESEND_API_KEY y el log
+    # de estado del servicio, para detectar problemas en el arranque.
+    get_email_service()
     yield
 
 

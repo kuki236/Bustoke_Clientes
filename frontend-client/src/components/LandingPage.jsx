@@ -68,6 +68,13 @@ export default function LandingPage() {
 
   const handleNavigate = (tab) => {
     if (!VALID_TABS.has(tab)) return
+    // Al navegar a "reclamos" desde la nav general, garantizamos que el
+    // formulario se abra como reclamo general (sin viaje vinculado).
+    // El único camino que debe mantener `linkedTrip` es el botón
+    // "Reportar problema" dentro de una tarjeta de Mis Viajes.
+    if (tab === 'reclamos') {
+      setLinkedTrip(null)
+    }
     const next = new URLSearchParams(searchParams)
     if (tab === 'buscar') {
       next.delete('tab')
@@ -149,7 +156,7 @@ export default function LandingPage() {
       </div>
 
       <div className="block md:hidden pb-24">
-        <MobileHeader />
+        <MobileHeader onNavigate={handleNavigate} />
         <main className="px-4 -mt-24">
           <MobileSearchCard
             values={search}

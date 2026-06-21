@@ -1,6 +1,9 @@
-import { useState } from 'react'
-import { Bus, Download, FileText, MapPin, TriangleAlert } from 'lucide-react'
-import { MOCK_TRIP_HISTORY } from '../data/mockTripHistory'
+import { useEffect, useState } from 'react'
+import { Bus, Download, FileText, Loader2, MapPin, RefreshCw, TriangleAlert } from 'lucide-react'
+import { fetchHistorialRequest } from '../api/boletos'
+import { useAuth } from '../context/AuthContext'
+import { downloadTicketPdf } from '../utils/pdfGenerator'
+import AvatarMenu from './AvatarMenu'
 import GuidedRouteMap, {
   GuidedRouteHeader,
 } from './GuidedRouteMap'
@@ -132,6 +135,21 @@ function GuidedRouteToggle({ trip, children }) {
 
 function HistoryCardMobile({ trip, onReportIssue }) {
   const embarque = getEmbarqueFromSeat(trip.seat)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState(null)
+
+  const handleDownload = async () => {
+    setDownloadError(null)
+    setDownloading(true)
+    try {
+      await downloadTicketPdf(trip)
+    } catch (err) {
+      setDownloadError(err?.message || 'No se pudo generar el PDF.')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   return (
     <article className="bg-white border border-neutral-100 rounded-2xl shadow-card p-5 flex flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
@@ -161,25 +179,49 @@ function HistoryCardMobile({ trip, onReportIssue }) {
         arrivalTime={trip.arrivalTime}
       />
 
+      {trip.choferNombre && (
+        <p className="text-[11px] text-neutral-500 -mt-1 flex items-center gap-1">
+          <span className="font-semibold text-neutral-700">Chofer:</span>
+          <span className="truncate">{trip.choferNombre}</span>
+        </p>
+      )}
+
       <div className="flex items-center justify-between gap-2 pt-1">
         <ServiceBadge service={trip.service} />
         <div className="flex items-center gap-1">
           <button
             type="button"
-            aria-label="Descargar boleto"
-            className="w-9 h-9 rounded-full border border-neutral-200 flex items-center justify-center text-neutral-700 hover:bg-neutral-50 transition-colors"
+            onClick={handleDownload}
+            disabled={downloading}
+            aria-label="Descargar boleto en PDF"
+            title="Descargar boleto en PDF"
+            className="w-9 h-9 rounded-full border border-neutral-200 flex items-center justify-center text-neutral-700 hover:bg-neutral-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Download className="w-4 h-4" />
+            {downloading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
           </button>
           <ReportIssueTooltip trip={trip} onReportIssue={onReportIssue} />
         </div>
         <StatusBadge status={trip.status} />
       </div>
 
+      {downloadError && (
+        <p className="text-xs text-red-600" role="alert">
+          {downloadError}
+        </p>
+      )}
+
       {trip.status === 'pendiente' && (
         <GuidedRouteToggle trip={trip}>
           <GuidedRouteHeader embarque={embarque} />
-          <GuidedRouteMap embarque={embarque} origin={trip.origin} />
+          <GuidedRouteMap
+            embarque={embarque}
+            origin={trip.origin}
+            destinationName={trip.origin}
+          />
         </GuidedRouteToggle>
       )}
     </article>
@@ -188,6 +230,21 @@ function HistoryCardMobile({ trip, onReportIssue }) {
 
 function HistoryCardDesktop({ trip, onReportIssue }) {
   const embarque = getEmbarqueFromSeat(trip.seat)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState(null)
+
+  const handleDownload = async () => {
+    setDownloadError(null)
+    setDownloading(true)
+    try {
+      await downloadTicketPdf(trip)
+    } catch (err) {
+      setDownloadError(err?.message || 'No se pudo generar el PDF.')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   return (
     <article className="bg-white border border-neutral-100 rounded-2xl shadow-card p-5 flex flex-col gap-4 h-full">
       <div className="flex items-start justify-between gap-3">
@@ -217,6 +274,13 @@ function HistoryCardDesktop({ trip, onReportIssue }) {
         arrivalTime={trip.arrivalTime}
       />
 
+      {trip.choferNombre && (
+        <p className="text-[11px] text-neutral-500 flex items-center gap-1">
+          <span className="font-semibold text-neutral-700">Chofer:</span>
+          <span className="truncate">{trip.choferNombre}</span>
+        </p>
+      )}
+
       <div className="flex items-center justify-between gap-2 pt-2 border-t border-neutral-100">
         <ServiceBadge service={trip.service} />
         <span className="text-sm font-bold text-neutral-900">
@@ -226,26 +290,205 @@ function HistoryCardDesktop({ trip, onReportIssue }) {
           <ReportIssueTooltip trip={trip} onReportIssue={onReportIssue} />
           <button
             type="button"
+            onClick={handleDownload}
+            disabled={downloading}
             aria-label="Descargar boleto en PDF"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-600 text-blue-600 text-sm font-medium hover:bg-blue-50 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-600 text-blue-600 text-sm font-medium hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Download className="w-4 h-4" />
-            PDF
+            {downloading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            {downloading ? 'Generando…' : 'PDF'}
           </button>
         </div>
       </div>
 
+      {downloadError && (
+        <p className="text-xs text-red-600" role="alert">
+          {downloadError}
+        </p>
+      )}
+
       {trip.status === 'pendiente' && (
         <GuidedRouteToggle trip={trip}>
           <GuidedRouteHeader embarque={embarque} />
-          <GuidedRouteMap embarque={embarque} origin={trip.origin} />
+          <GuidedRouteMap
+            embarque={embarque}
+            origin={trip.origin}
+            destinationName={trip.origin}
+          />
         </GuidedRouteToggle>
       )}
     </article>
   )
 }
 
+function LoadingState({ isMobile = false }) {
+  return (
+    <div
+      className={`flex flex-col items-center justify-center gap-3 ${
+        isMobile ? 'py-16' : 'py-20'
+      } text-neutral-500`}
+    >
+      <div className="w-9 h-9 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+      <p className="text-sm font-medium">Cargando tus viajes...</p>
+    </div>
+  )
+}
+
+function ErrorState({ message, onRetry, isMobile = false }) {
+  return (
+    <div
+      className={`flex flex-col items-center justify-center gap-3 ${
+        isMobile ? 'py-12 px-4' : 'py-16'
+      } text-center`}
+    >
+      <div className="w-12 h-12 rounded-full bg-red-50 text-red-500 flex items-center justify-center">
+        <TriangleAlert className="w-6 h-6" />
+      </div>
+      <p className="text-sm font-semibold text-neutral-900">
+        No pudimos cargar tus viajes
+      </p>
+      <p className="text-xs text-neutral-500 max-w-sm">{message}</p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex items-center gap-1.5 px-4 py-2 mt-1 rounded-lg border border-blue-600 text-blue-600 text-sm font-medium hover:bg-blue-50 transition-colors"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Reintentar
+        </button>
+      )}
+    </div>
+  )
+}
+
+function EmptyState({ isMobile = false, onNavigate }) {
+  return (
+    <div
+      className={`flex flex-col items-center justify-center gap-3 ${
+        isMobile ? 'py-12 px-4' : 'py-16'
+      } text-center`}
+    >
+      <div className="w-14 h-14 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+        <Bus className="w-7 h-7" />
+      </div>
+      <p className="text-base font-semibold text-neutral-900">
+        Aún no tienes viajes contratados
+      </p>
+      <p className="text-sm text-neutral-500 max-w-sm">
+        Cuando compres tu primer boleto, aparecerá aquí con todos los detalles
+        del viaje, asiento y embarque.
+      </p>
+      {onNavigate && (
+        <button
+          type="button"
+          onClick={() => onNavigate('buscar')}
+          className="mt-2 inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+        >
+          Buscar viajes
+        </button>
+      )}
+    </div>
+  )
+}
+
+function NotAuthenticatedState({ isMobile = false, onNavigate }) {
+  return (
+    <div
+      className={`flex flex-col items-center justify-center gap-3 ${
+        isMobile ? 'py-12 px-4' : 'py-16'
+      } text-center`}
+    >
+      <div className="w-14 h-14 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+        <FileText className="w-7 h-7" />
+      </div>
+      <p className="text-base font-semibold text-neutral-900">
+        Inicia sesión para ver tus viajes
+      </p>
+      <p className="text-sm text-neutral-500 max-w-sm">
+        Necesitamos identificarte para mostrar el historial de tus boletos
+        contratados.
+      </p>
+      {onNavigate && (
+        <button
+          type="button"
+          onClick={() => onNavigate('login')}
+          className="mt-2 inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+        >
+          Iniciar sesión
+        </button>
+      )}
+    </div>
+  )
+}
+
+function HistoryList({ trips, isMobile, onReportIssue, onNavigate }) {
+  if (isMobile) {
+    return (
+      <main className="flex flex-col gap-4 p-4">
+        {trips.map((trip) => (
+          <HistoryCardMobile
+            key={trip.id}
+            trip={trip}
+            onReportIssue={onReportIssue}
+          />
+        ))}
+      </main>
+    )
+  }
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {trips.map((trip) => (
+        <HistoryCardDesktop
+          key={trip.id}
+          trip={trip}
+          onReportIssue={onReportIssue}
+        />
+      ))}
+    </div>
+  )
+}
+
 export default function HistoryPage({ onNavigate, onReportIssue }) {
+  const { user, isAuthenticated, loading: authLoading } = useAuth()
+  const [trips, setTrips] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  const loadHistorial = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const items = await fetchHistorialRequest()
+      setTrips(items)
+    } catch (err) {
+      const message =
+        err?.response?.data?.detail ||
+        err?.message ||
+        'Error inesperado al consultar tu historial.'
+      setError(message)
+      setTrips([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (authLoading) return
+    if (!isAuthenticated) {
+      setTrips([])
+      setError(null)
+      setLoading(false)
+      return
+    }
+    loadHistorial()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, authLoading, user?.id_usuario])
+
   return (
     <div className="min-h-screen bg-neutral-100">
       <div className="hidden md:block">
@@ -260,32 +503,58 @@ export default function HistoryPage({ onNavigate, onReportIssue }) {
             </p>
           </header>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {MOCK_TRIP_HISTORY.map((trip) => (
-              <HistoryCardDesktop
-                key={trip.id}
-                trip={trip}
-                onReportIssue={onReportIssue}
-              />
-            ))}
-          </div>
+          {authLoading || loading ? (
+            <LoadingState />
+          ) : !isAuthenticated ? (
+            <NotAuthenticatedState onNavigate={onNavigate} />
+          ) : error ? (
+            <ErrorState message={error} onRetry={loadHistorial} />
+          ) : trips.length === 0 ? (
+            <EmptyState onNavigate={onNavigate} />
+          ) : (
+            <HistoryList
+              trips={trips}
+              isMobile={false}
+              onReportIssue={onReportIssue}
+            />
+          )}
         </div>
       </div>
 
       <div className="block md:hidden pb-24">
-        <header className="bg-blue-600 text-white p-6 text-center text-xl font-bold">
-          Encuentra aquí tus viajes
+        <header className="bg-blue-600 text-white p-6 flex items-center justify-between">
+          <span className="flex-1 text-center text-xl font-bold">
+            Encuentra aquí tus viajes
+          </span>
+          {isAuthenticated && (
+            <AvatarMenu
+              user={user}
+              onNavigate={onNavigate}
+              variant="light"
+            />
+          )}
         </header>
 
-        <main className="flex flex-col gap-4 p-4">
-          {MOCK_TRIP_HISTORY.map((trip) => (
-            <HistoryCardMobile
-              key={trip.id}
-              trip={trip}
-              onReportIssue={onReportIssue}
-            />
-          ))}
-        </main>
+        {authLoading || loading ? (
+          <LoadingState isMobile />
+        ) : !isAuthenticated ? (
+          <NotAuthenticatedState isMobile onNavigate={onNavigate} />
+        ) : error ? (
+          <ErrorState
+            message={error}
+            onRetry={loadHistorial}
+            isMobile
+          />
+        ) : trips.length === 0 ? (
+          <EmptyState isMobile onNavigate={onNavigate} />
+        ) : (
+          <HistoryList
+            trips={trips}
+            isMobile
+            onReportIssue={onReportIssue}
+            onNavigate={onNavigate}
+          />
+        )}
 
         <BottomNav active="trips" onNavigate={onNavigate} />
       </div>

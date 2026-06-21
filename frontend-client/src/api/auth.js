@@ -32,21 +32,54 @@ export function normalizeUser(rawUser) {
       : rol === 'superadmin'
         ? 'Superadministrador'
         : 'Pasajero B2C'
+
+  const nombres = pick('nombres', 'names', 'name', 'given_name')
+  const apellidoPaterno = pick(
+    'apellido_paterno',
+    'apellidoPaterno',
+    'paternal_surname',
+    'last_name',
+  )
+  const apellidoMaterno = pick(
+    'apellido_materno',
+    'apellidoMaterno',
+    'maternal_surname',
+  )
+  const tipoDocumento = pick('tipo_documento', 'tipoDocumento', 'doc_type') || 'DNI'
+  const numeroDocumento = pick(
+    'numero_documento',
+    'numeroDocumento',
+    'doc_number',
+  )
+  const telefono = pick('telefono', 'phone')
+  const email = pick('email', 'correo')
+  const idUsuario = pick('id_usuario', 'idUsuario', 'id')
+
   return {
-    id: pick('id_usuario', 'idUsuario', 'id'),
-    email: pick('email', 'correo'),
-    phone: pick('telefono', 'phone'),
+    id: idUsuario,
+    id_usuario: idUsuario,
+    email,
+    phone: telefono,
     rol,
     idAgencia: idAgencia === '' ? null : Number(idAgencia) || null,
     activo: rawUser.activo !== false,
     fechaCreacion: pick('fecha_creacion', 'fechaCreacion'),
     accountType,
-    nombres: pick('nombres', 'names', 'name'),
-    apellido_paterno: pick('apellido_paterno', 'apellidoPaterno', 'paternal_surname'),
-    apellido_materno: pick('apellido_materno', 'apellidoMaterno', 'maternal_surname'),
-    tipo_documento: pick('tipo_documento', 'tipoDocumento', 'doc_type') || 'DNI',
-    numero_documento: pick('numero_documento', 'numeroDocumento', 'doc_number'),
-    telefono: pick('telefono', 'phone'),
+    nombres,
+    names: nombres,
+    apellido_paterno: apellidoPaterno,
+    apellidoPaterno: apellidoPaterno,
+    paternalSurname: apellidoPaterno,
+    apellido_materno: apellidoMaterno,
+    apellidoMaterno: apellidoMaterno,
+    maternalSurname: apellidoMaterno,
+    tipo_documento: tipoDocumento,
+    tipoDocumento: tipoDocumento,
+    docType: tipoDocumento,
+    numero_documento: numeroDocumento,
+    numeroDocumento: numeroDocumento,
+    docNumber: numeroDocumento,
+    telefono,
     raw: rawUser,
   }
 }

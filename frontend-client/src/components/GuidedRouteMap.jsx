@@ -1,4 +1,9 @@
-import { MapPin, Navigation } from 'lucide-react'
+import { ExternalLink, MapPin, Navigation } from 'lucide-react'
+
+function buildGoogleMapsUrl(destination, { travelMode = 'driving' } = {}) {
+  const encoded = encodeURIComponent(destination || '')
+  return `https://www.google.com/maps/dir/?api=1&destination=${encoded}&travelmode=${travelMode}`
+}
 
 function MapSimulation({ embarque }) {
   return (
@@ -65,15 +70,60 @@ function GuidedRouteLegend({ embarque, origin }) {
       className="absolute top-2 left-2 bg-white/90 backdrop-blur-sm rounded-lg p-2 shadow-sm border border-neutral-100 max-w-[180px] z-10"
     >
       <p className="text-[10px] text-neutral-700 leading-snug">
-        <span className="font-semibold text-blue-600">Caminando</span> hacia la
-        rampa asignada:{' '}
-        <span className="font-semibold text-neutral-900">2 min (150 m)</span>
+        <span className="font-semibold text-blue-600">Indicación visual</span>:
+        abajo abre la ruta real en Google Maps.
       </p>
       {origin ? (
         <p className="text-[9px] text-neutral-500 mt-0.5 truncate">
-          Terminal {origin} · {embarque}
+          {origin} · {embarque}
         </p>
       ) : null}
+    </div>
+  )
+}
+
+function GoogleMapsActions({ destination, embarque }) {
+  if (!destination) return null
+  const drivingUrl = buildGoogleMapsUrl(destination, { travelMode: 'driving' })
+  const transitUrl = buildGoogleMapsUrl(destination, { travelMode: 'transit' })
+  const walkingUrl = buildGoogleMapsUrl(destination, { travelMode: 'walking' })
+
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      <a
+        href={drivingUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors shadow-sm"
+      >
+        <Navigation className="w-4 h-4" />
+        Abrir ruta en Google Maps
+        <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+      </a>
+      <div className="flex items-center justify-center gap-1.5 text-[11px] text-neutral-500">
+        <span>O también:</span>
+        <a
+          href={walkingUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-600 hover:underline font-medium"
+        >
+          A pie
+        </a>
+        <span>·</span>
+        <a
+          href={transitUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-blue-600 hover:underline font-medium"
+        >
+          Transporte público
+        </a>
+      </div>
+      <p className="text-[10px] text-neutral-400 text-center">
+        Destino: <span className="font-medium text-neutral-600">{destination}</span>
+        {embarque ? <> · Rampa {embarque}</> : null}
+      </p>
     </div>
   )
 }
@@ -81,18 +131,22 @@ function GuidedRouteLegend({ embarque, origin }) {
 export default function GuidedRouteMap({
   embarque,
   origin,
-  children,
+  destinationName,
   className = '',
 }) {
+  const destination = destinationName || origin
   return (
-    <div
-      data-map-mode={children ? 'provider' : 'simulated'}
-      className={`h-48 w-full rounded-xl overflow-hidden relative border border-neutral-200 shadow-inner bg-slate-100 ${className}`}
-      role="region"
-      aria-label={`Mapa de ruta hacia ${embarque || 'el embarque'}`}
-    >
-      {children || <MapSimulation embarque={embarque} />}
-      <GuidedRouteLegend embarque={embarque} origin={origin} />
+    <div className="flex flex-col gap-1">
+      <div
+        data-map-mode={destination ? 'google-maps' : 'simulated'}
+        className={`h-48 w-full rounded-xl overflow-hidden relative border border-neutral-200 shadow-inner bg-slate-100 ${className}`}
+        role="region"
+        aria-label={`Mapa de ruta hacia ${destination || embarque || 'el embarque'}`}
+      >
+        <MapSimulation embarque={embarque} />
+        <GuidedRouteLegend embarque={embarque} origin={origin} />
+      </div>
+      <GoogleMapsActions destination={destination} embarque={embarque} />
     </div>
   )
 }

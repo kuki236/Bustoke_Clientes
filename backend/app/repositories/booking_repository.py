@@ -37,7 +37,12 @@ class BookingRepository:
     def get_viaje(self, id_viaje: int) -> Optional[Viaje]:
         stmt = (
             select(Viaje)
-            .options(joinedload(Viaje.bus))
+            .options(
+                joinedload(Viaje.bus).joinedload(Bus.agencia),
+                joinedload(Viaje.ruta).joinedload(Ruta.terminal_origen),
+                joinedload(Viaje.ruta).joinedload(Ruta.terminal_destino),
+                joinedload(Viaje.chofer),
+            )
             .where(Viaje.id_viaje == id_viaje)
         )
         return self.db.scalars(stmt).unique().first()
@@ -78,8 +83,8 @@ class BookingRepository:
     def get_boletos_by_usuario(self, id_usuario: int) -> List[Boleto]:
         """
         Lista los boletos asociados a un usuario autenticado, con
-        `viaje`, `asiento` y la cadena `viaje → ruta → terminales` y
-        `viaje → bus → agencia` eager-loaded.
+        `viaje`, `asiento`, `chofer` y la cadena `viaje → ruta → terminales`
+        y `viaje → bus → agencia` eager-loaded.
 
         Ordena por `fecha_emision DESC` (lo más reciente primero).
         Se usa como fuente de datos del endpoint
@@ -98,6 +103,7 @@ class BookingRepository:
                 joinedload(Boleto.viaje).joinedload(Viaje.bus).joinedload(
                     Bus.agencia
                 ),
+                joinedload(Boleto.viaje).joinedload(Viaje.chofer),
             )
             .where(Boleto.id_usuario == id_usuario)
             .order_by(Boleto.fecha_emision.desc())

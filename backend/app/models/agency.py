@@ -75,6 +75,7 @@ class Agencia(Base):
     buses: Mapped[List["Bus"]] = relationship("Bus", back_populates="agencia")
     rutas: Mapped[List["Ruta"]] = relationship("Ruta", back_populates="agencia")
     usuarios: Mapped[List["Usuario"]] = relationship("Usuario", back_populates="agencia")
+    choferes: Mapped[List["Chofer"]] = relationship("Chofer", back_populates="agencia")
     agencias_terminales: Mapped[List["AgenciaTerminal"]] = relationship(
         "AgenciaTerminal", back_populates="agencia", cascade="all, delete-orphan"
     )

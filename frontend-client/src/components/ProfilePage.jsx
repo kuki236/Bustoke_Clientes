@@ -9,6 +9,7 @@ import {
   UserRound,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import AvatarMenu from './AvatarMenu'
 import BottomNav from './BottomNav'
 import Navbar from './Navbar'
 
@@ -364,7 +365,16 @@ export default function ProfilePage({ onNavigate, onBack }) {
       </div>
 
       <div className="block md:hidden pb-24">
-        <header className="bg-blue-600 p-6 text-white text-center rounded-b-3xl flex flex-col items-center gap-3">
+        <header className="bg-blue-600 p-6 text-white text-center rounded-b-3xl flex flex-col items-center gap-3 relative">
+          {isAuthenticated && (
+            <div className="absolute top-3 right-3">
+              <AvatarMenu
+                user={user}
+                onNavigate={onNavigate}
+                variant="light"
+              />
+            </div>
+          )}
           <ProfileAvatar size="xl" />
           <p className="text-xl font-bold leading-tight">
             {[displayProfile.nombres, displayProfile.apellido_paterno]

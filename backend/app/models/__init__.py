@@ -16,6 +16,7 @@ from app.models.agency import (
 )
 from app.models.audit import AuditLog
 from app.models.bus import Bus
+from app.models.chofer import Chofer
 from app.models.claim import MensajeReclamo, Reclamo
 from app.models.enums import (
     canal_venta_enum,
@@ -55,6 +56,7 @@ __all__ = [
     "BloqueoTemporal",
     "Boleto",
     "Bus",
+    "Chofer",
     "ConfiguracionComision",
     "Departamento",
     "Distrito",
