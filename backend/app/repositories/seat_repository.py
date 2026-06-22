@@ -169,6 +169,39 @@ class SeatRepository:
         )
         return self.db.scalars(stmt).first()
 
+    def expire_stale_holds(self, id_viaje: int, id_asiento: int) -> int:
+        """
+        FIX bug "UNIQUE constraint falla por holds expirados":
+
+        El UNIQUE constraint parcial `uq_bloqueo_activo_viaje_asiento`
+        solo filtra por `estado='activo'`, NO por `expira_at`. Entonces
+        si hay un hold con `estado='activo'` pero `expira_at < now`
+        (expirado pero no marcado como tal), el INSERT de un nuevo
+        hold para el mismo par (id_viaje, id_asiento) falla con
+        `UniqueViolation` aunque el `get_active_hold` diga que no
+        hay nadie.
+
+        Este método marca esos holds expirados como `estado='expirado'`
+        para liberar el UNIQUE constraint y permitir el nuevo INSERT.
+        Se ejecuta al inicio de `create_hold` dentro de la misma
+        transacción.
+        """
+        from sqlalchemy import update
+
+        now = datetime.now(timezone.utc)
+        stmt = (
+            update(BloqueoTemporal)
+            .where(
+                BloqueoTemporal.id_viaje == id_viaje,
+                BloqueoTemporal.id_asiento == id_asiento,
+                BloqueoTemporal.estado == "activo",
+                BloqueoTemporal.expira_at <= now,
+            )
+            .values(estado="expirado")
+        )
+        result = self.db.execute(stmt)
+        return result.rowcount or 0
+
     def create_hold(
         self,
         id_viaje: int,
@@ -186,7 +219,18 @@ class SeatRepository:
         (caso guest), el hold queda con `id_usuario=NULL` y el release
         filtra solo por `token_sesion` (que sigue siendo único por
         sesión de navegador).
+<<<<<<< Updated upstream
         """
+=======
+
+        FIX bug "UNIQUE constraint falla por holds expirados":
+        primero marca los holds expirados del mismo par como
+        `estado='expirado'` para liberar el UNIQUE constraint.
+        """
+        # Liberar el UNIQUE constraint liberando holds expirados
+        self.expire_stale_holds(id_viaje, id_asiento)
+
+>>>>>>> Stashed changes
         now = datetime.now(timezone.utc)
         expira_at = now + __import__("datetime").timedelta(seconds=segundos_ttl)
 
