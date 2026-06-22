@@ -15,17 +15,14 @@ export function deriveMotivo(detalle) {
   return `${firstLine.slice(0, 147).trim()}...`
 }
 
-export async function createClaimRequest({
-  id_agencia,
-  motivo,
-  detalle,
-  tipo_bien = 'producto',
-}) {
+// FIX BUG-144: el campo `tipo_bien` fue removido del backend (nunca se
+// persistió en la tabla `reclamos`). Se quita también del payload del
+// frontend para no enviarlo más.
+export async function createClaimRequest({ id_agencia, motivo, detalle }) {
   const payload = {
     id_agencia: toNumberOrNull(id_agencia),
     motivo: motivo || deriveMotivo(detalle),
     detalle: String(detalle || '').trim(),
-    tipo_bien,
   }
   if (!payload.id_agencia) {
     throw new Error('Selecciona una empresa de transporte.')

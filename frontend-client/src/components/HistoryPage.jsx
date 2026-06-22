@@ -11,21 +11,32 @@ import BottomNav from './BottomNav'
 import Navbar from './Navbar'
 
 function formatPrice(value) {
-  return `S/ ${value.toFixed(2)}`
+  if (value == null) return 'S/ 0.00'
+  return `S/ ${Number(value).toFixed(2)}`
 }
 
 function StatusBadge({ status }) {
-  if (status === 'pendiente') {
+  // FIX BUG-124: manejamos los nuevos status derivados
+  // ("Cancelado", "Viaje cancelado") además de los originales.
+  const s = String(status || '').toLowerCase()
+  if (s === 'pendiente') {
     return (
       <span className="bg-orange-50 text-orange-600 border border-orange-200 rounded-full px-4 py-1 text-sm font-medium">
         Pendiente
       </span>
     )
   }
+  if (s.includes('cancelado')) {
+    return (
+      <span className="bg-red-50 text-red-600 border border-red-200 rounded-full px-4 py-1 text-sm font-medium">
+        {status}
+      </span>
+    )
+  }
   return (
     <span className="bg-green-100 text-green-700 rounded-full px-4 py-1 text-sm font-medium">
-    Completado
-  </span>
+      Completado
+    </span>
   )
 }
 
@@ -40,30 +51,37 @@ function ServiceBadge({ service }) {
 function TimeStop({ time, city, align = 'left' }) {
   return (
     <div
-      className={`flex flex-col ${align === 'right' ? 'items-end' : 'items-start'}`}
+      className={`flex flex-col min-w-0 ${
+        align === 'right' ? 'items-end' : 'items-start'
+      }`}
     >
       <span className="text-sm font-semibold text-neutral-900 leading-tight">
         {time}
       </span>
-      <span className="text-[11px] text-neutral-500 mt-0.5">{city}</span>
+      <span
+        className="text-[11px] text-neutral-500 mt-0.5 leading-snug w-full"
+        title={city}
+      >
+        {city}
+      </span>
     </div>
   )
 }
 
 function Timeline({ origin, destination, departureTime, arrivalTime }) {
   return (
-    <div className="flex items-center justify-center gap-2">
+    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
       <TimeStop time={departureTime} city={origin} align="left" />
-      <div className="flex-1 flex items-center px-1 min-w-0">
+      <div className="flex items-center shrink-0">
         <span
-          className="block flex-1 border-t border-dashed border-neutral-300"
+          className="block w-10 border-t border-dashed border-neutral-300"
           aria-hidden="true"
         />
         <div className="mx-1 w-7 h-7 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
           <Bus className="w-3.5 h-3.5" />
         </div>
         <span
-          className="block flex-1 border-t border-dashed border-neutral-300"
+          className="block w-10 border-t border-dashed border-neutral-300"
           aria-hidden="true"
         />
       </div>
@@ -97,12 +115,11 @@ function ReportIssueTooltip({ onReportIssue, trip, iconClassName = '' }) {
   )
 }
 
-function getEmbarqueFromSeat(seat) {
-  const lastChar = String(seat ?? '').slice(-1)
-  const num = Number(lastChar)
-  if (Number.isNaN(num) || num < 1) return 'Rampa 1'
-  return `Rampa ${num}`
-}
+// FIX BUG-126: la rampa de embarque viene del backend en
+// `viaje.rampa_embarque`. Se removió la función que la calculaba
+// del último dígito del asiento (era información FALSA).
+// `trip.rampaEmbarque` lo provee el normalizador de api/boletos.js
+// desde el response del endpoint /v1/boletos/historial.
 
 function GuidedRouteToggle({ trip, children }) {
   const [showMap, setShowMap] = useState(false)
@@ -134,7 +151,14 @@ function GuidedRouteToggle({ trip, children }) {
 }
 
 function HistoryCardMobile({ trip, onReportIssue }) {
-  const embarque = getEmbarqueFromSeat(trip.seat)
+  // FIX BUG-126: rampa viene del backend, no se calcula del asiento.
+  const embarque = trip.rampaEmbarque
+    ? `Rampa ${trip.rampaEmbarque}`
+    : 'Rampa por asignar'
+  // FIX BUG-154: pasamos el nombre de la ciudad como dirección de mapa
+  // (la dirección específica del terminal requeriría extender la API
+  // para incluir `terminal.direccion` en el response del historial).
+  const mapAddress = trip.origin
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState(null)
 
@@ -179,13 +203,6 @@ function HistoryCardMobile({ trip, onReportIssue }) {
         arrivalTime={trip.arrivalTime}
       />
 
-      {trip.choferNombre && (
-        <p className="text-[11px] text-neutral-500 -mt-1 flex items-center gap-1">
-          <span className="font-semibold text-neutral-700">Chofer:</span>
-          <span className="truncate">{trip.choferNombre}</span>
-        </p>
-      )}
-
       <div className="flex items-center justify-between gap-2 pt-1">
         <ServiceBadge service={trip.service} />
         <div className="flex items-center gap-1">
@@ -214,13 +231,13 @@ function HistoryCardMobile({ trip, onReportIssue }) {
         </p>
       )}
 
-      {trip.status === 'pendiente' && (
+      {String(trip.status || '').toLowerCase() === 'pendiente' && (
         <GuidedRouteToggle trip={trip}>
           <GuidedRouteHeader embarque={embarque} />
           <GuidedRouteMap
             embarque={embarque}
             origin={trip.origin}
-            destinationName={trip.origin}
+            destinationName={mapAddress}
           />
         </GuidedRouteToggle>
       )}
@@ -229,7 +246,11 @@ function HistoryCardMobile({ trip, onReportIssue }) {
 }
 
 function HistoryCardDesktop({ trip, onReportIssue }) {
-  const embarque = getEmbarqueFromSeat(trip.seat)
+  // FIX BUG-126: rampa viene del backend, no se calcula del asiento.
+  const embarque = trip.rampaEmbarque
+    ? `Rampa ${trip.rampaEmbarque}`
+    : 'Rampa por asignar'
+  const mapAddress = trip.origin
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState(null)
 
@@ -274,13 +295,6 @@ function HistoryCardDesktop({ trip, onReportIssue }) {
         arrivalTime={trip.arrivalTime}
       />
 
-      {trip.choferNombre && (
-        <p className="text-[11px] text-neutral-500 flex items-center gap-1">
-          <span className="font-semibold text-neutral-700">Chofer:</span>
-          <span className="truncate">{trip.choferNombre}</span>
-        </p>
-      )}
-
       <div className="flex items-center justify-between gap-2 pt-2 border-t border-neutral-100">
         <ServiceBadge service={trip.service} />
         <span className="text-sm font-bold text-neutral-900">
@@ -311,13 +325,13 @@ function HistoryCardDesktop({ trip, onReportIssue }) {
         </p>
       )}
 
-      {trip.status === 'pendiente' && (
+      {String(trip.status || '').toLowerCase() === 'pendiente' && (
         <GuidedRouteToggle trip={trip}>
           <GuidedRouteHeader embarque={embarque} />
           <GuidedRouteMap
             embarque={embarque}
             origin={trip.origin}
-            destinationName={trip.origin}
+            destinationName={mapAddress}
           />
         </GuidedRouteToggle>
       )}
@@ -399,9 +413,11 @@ function EmptyState({ isMobile = false, onNavigate }) {
 function NotAuthenticatedState({ isMobile = false, onNavigate }) {
   return (
     <div
-      className={`flex flex-col items-center justify-center gap-3 ${
-        isMobile ? 'py-12 px-4' : 'py-16'
-      } text-center`}
+      className={`flex flex-col items-center justify-center gap-3 text-center ${
+        isMobile
+          ? 'flex-1 px-6 py-12 min-h-[60vh]'
+          : 'py-16'
+      }`}
     >
       <div className="w-14 h-14 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
         <FileText className="w-7 h-7" />
@@ -417,7 +433,7 @@ function NotAuthenticatedState({ isMobile = false, onNavigate }) {
         <button
           type="button"
           onClick={() => onNavigate('login')}
-          className="mt-2 inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+          className="mt-2 inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
         >
           Iniciar sesión
         </button>
@@ -426,7 +442,7 @@ function NotAuthenticatedState({ isMobile = false, onNavigate }) {
   )
 }
 
-function HistoryList({ trips, isMobile, onReportIssue, onNavigate }) {
+function HistoryList({ trips, isMobile, onReportIssue }) {
   if (isMobile) {
     return (
       <main className="flex flex-col gap-4 p-4">
@@ -486,7 +502,6 @@ export default function HistoryPage({ onNavigate, onReportIssue }) {
       return
     }
     loadHistorial()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, authLoading, user?.id_usuario])
 
   return (
@@ -521,7 +536,7 @@ export default function HistoryPage({ onNavigate, onReportIssue }) {
         </div>
       </div>
 
-      <div className="block md:hidden pb-24">
+      <div className="block md:hidden pb-24 flex flex-col min-h-screen">
         <header className="bg-blue-600 text-white p-6 flex items-center justify-between">
           <span className="flex-1 text-center text-xl font-bold">
             Encuentra aquí tus viajes
@@ -552,7 +567,6 @@ export default function HistoryPage({ onNavigate, onReportIssue }) {
             trips={trips}
             isMobile
             onReportIssue={onReportIssue}
-            onNavigate={onNavigate}
           />
         )}
 

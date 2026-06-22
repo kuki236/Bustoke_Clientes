@@ -61,8 +61,14 @@ export function normalizeHistorialItem(raw) {
   if (!raw) return null
   const fechaSalida = raw.fecha_hora_salida ?? raw.fechaHoraSalida
   const fechaLlegada = raw.fecha_hora_llegada ?? raw.fechaHoraLlegada
+  // FIX BUG-124: el backend ahora devuelve status más rico
+  // ("Pendiente" | "Completado" | "Cancelado" | "Viaje cancelado").
+  // Mapeamos a keys en minúsculas para el frontend pero conservamos
+  // el string original para mostrarlo en el badge.
   const statusBackend = String(raw.status ?? '').toLowerCase()
-  const statusFrontend = statusBackend === 'pendiente' ? 'pendiente' : 'completado'
+  let statusKey = 'completado'
+  if (statusBackend === 'pendiente') statusKey = 'pendiente'
+  else if (statusBackend.includes('cancelado')) statusKey = 'cancelado'
   const chofer = normalizeChofer(raw.chofer)
 
   return {
@@ -80,7 +86,8 @@ export function normalizeHistorialItem(raw) {
     price: Number(raw.precio_final ?? 0),
     service: formatServiceType(raw.tipo_servicio),
     seat: raw.numero_asiento || '',
-    status: statusFrontend,
+    status: statusKey,
+    statusLabel: raw.status || statusKey,
     reservationCode: raw.codigo_qr || '',
     placaBus: raw.placa_bus || '',
     rampaEmbarque: raw.rampa_embarque || '',

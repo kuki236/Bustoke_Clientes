@@ -277,6 +277,7 @@ function buildBookingPayload({
   passengers,
   seatIdMap,
   paymentMethod,
+  acceptedTerms = false,
 }) {
   const metodoPago = PAYMENT_METHOD_TO_BACKEND[paymentMethod] || 'tarjeta'
   return {
@@ -302,6 +303,10 @@ function buildBookingPayload({
       fecha_nacimiento: pax.fechaNacimiento,
     })),
     metodo_pago: metodoPago,
+    // FIX BUG-111: enviar explícitamente la aceptación de términos.
+    // El backend persiste el valor real; antes siempre quedaba `true`
+    // por el server_default aunque el usuario NO hubiera marcado.
+    acepto_terminos_politicas: Boolean(acceptedTerms),
   }
 }
 
@@ -588,9 +593,6 @@ function BuyerBlock({
   onToggleBuyerIsPax1,
   isLoggedIn = false,
   buyerReadOnlyReason = null,
-  showCreateAccountCheckbox = false,
-  createAccountChecked = false,
-  onToggleCreateAccount,
 }) {
   const update = (field, value) => {
     onChange({ ...buyer, [field]: value })
@@ -676,22 +678,15 @@ function BuyerBlock({
         value={buyer.email}
         onChange={(v) => update('email', v)}
         placeholder="correo@ejemplo.com"
-        disabled={lockFromPax1}
+        // FIX bug "no puedo editar el email cuando el comprador es
+        // Pasajero 1": el email NO es un dato personal del comprador
+        // (que ya viene de Pax 1) sino el `email_contacto` del
+        // boleto (a dónde se manda el PDF). Por eso solo se bloquea
+        // cuando el usuario está autenticado (cuyo email viene del
+        // perfil y no debería cambiar para ESTA compra), pero sigue
+        // siendo editable cuando es guest.
+        disabled={lockFromAuth}
       />
-
-      {showCreateAccountCheckbox && onToggleCreateAccount && (
-        <div className="pt-1">
-          <Checkbox
-            id="guest-create-account"
-            checked={createAccountChecked}
-            onChange={onToggleCreateAccount}
-            tone="subtle"
-          >
-            Guardar mis datos y crear una cuenta de Bustoke para futuros viajes
-            (Opcional)
-          </Checkbox>
-        </div>
-      )}
     </section>
   )
 }
@@ -741,7 +736,15 @@ function PaymentOption({ option, selected, onSelect }) {
 }
 
 function SummaryCard({ trip, selectedSeats, total, date }) {
-  const displaySeats = selectedSeats.map(formatSeat)
+  // FIX bug "Cannot read properties of null (reading 'origin')":
+  // cuando el usuario navega checkout → volver → seleccionar →
+  // checkout, el `trip` puede venir null/undefined desde el state
+  // de React Router. Hacemos destructuring defensivo con fallbacks
+  // para que el componente siempre renderice algo legible.
+  const safeTrip = trip && typeof trip === 'object' ? trip : {}
+  const displaySeats = Array.isArray(selectedSeats)
+    ? selectedSeats.map(formatSeat)
+    : []
   const displayDate = date || DEFAULT_DATE
   return (
     <article className="bg-white rounded-2xl shadow-card p-6 flex flex-col gap-4">
@@ -750,7 +753,7 @@ function SummaryCard({ trip, selectedSeats, total, date }) {
       <div className="flex flex-col gap-2">
         <p className="text-sm text-neutral-600">Ruta</p>
         <p className="text-base font-semibold text-neutral-900 leading-tight">
-          {trip.origin} a {trip.destination}
+          {safeTrip.origin || '—'} a {safeTrip.destination || '—'}
         </p>
         {displaySeats.length > 0 && (
           <p className="text-sm text-neutral-700 break-words">
@@ -767,7 +770,9 @@ function SummaryCard({ trip, selectedSeats, total, date }) {
       <dl className="flex flex-col gap-2 text-sm">
         <div className="flex items-center justify-between gap-3">
           <dt className="text-neutral-600">Empresa</dt>
-          <dd className="font-medium text-neutral-900 text-right">{trip.company}</dd>
+          <dd className="font-medium text-neutral-900 text-right">
+            {safeTrip.company || '—'}
+          </dd>
         </div>
         <div className="flex items-center justify-between gap-3">
           <dt className="text-neutral-600">Fecha</dt>
@@ -775,7 +780,9 @@ function SummaryCard({ trip, selectedSeats, total, date }) {
         </div>
         <div className="flex items-center justify-between gap-3">
           <dt className="text-neutral-600">Hora</dt>
-          <dd className="font-medium text-neutral-900 text-right">{trip.departureTime}</dd>
+          <dd className="font-medium text-neutral-900 text-right">
+            {safeTrip.departureTime || '—'}
+          </dd>
         </div>
       </dl>
 
@@ -784,7 +791,7 @@ function SummaryCard({ trip, selectedSeats, total, date }) {
       <div className="flex items-center justify-between">
         <span className="text-sm text-neutral-600">Total</span>
         <span className="text-2xl font-bold text-neutral-900">
-          S/ {total.toFixed(2)}
+          S/ {Number(total || 0).toFixed(2)}
         </span>
       </div>
     </article>
@@ -853,9 +860,6 @@ function CheckoutForms({
   onToggleUseProfileForPax1,
   hasProfileData = false,
   buyerReadOnlyReason = null,
-  showCreateAccountCheckbox = false,
-  createAccountChecked = false,
-  onToggleCreateAccount,
 }) {
   return (
     <div className="flex flex-col gap-6">
@@ -889,9 +893,6 @@ function CheckoutForms({
           onToggleBuyerIsPax1={onToggleBuyerIsPax1}
           isLoggedIn={isLoggedIn}
           buyerReadOnlyReason={buyerReadOnlyReason}
-          showCreateAccountCheckbox={showCreateAccountCheckbox}
-          createAccountChecked={createAccountChecked}
-          onToggleCreateAccount={onToggleCreateAccount}
         />
       </article>
     </div>
@@ -974,6 +975,11 @@ export default function CheckoutPage({
 }) {
   const location = useLocation()
   const navigate = useNavigate()
+  // NOTA: `location.state` es un objeto nuevo en cada render. Los
+  // useCallback que dependen de él se recrean también, pero el costo
+  // es despreciable para este componente (solo se ejecutan al hacer
+  // click). Antes había un useMemo aquí pero causaba un warning de
+  // ESLint peor; lo dejamos simple.
   const stateData = location.state || {}
 
   const trip = stateData.trip ?? tripProp ?? null
@@ -994,13 +1000,24 @@ export default function CheckoutPage({
     ? selectedSeatsFullFromState
     : selectedSeatsFullFromProps
 
+  // FIX bug "el hold no coincide con el asiento del booking": el
+  // fallback a sessionStorage puede traer datos de un test anterior
+  // con un id_asiento que ya no tiene hold activo. Lo aceptamos
+  // igual (es un fallback legítimo) pero logueamos claramente
+  // para que un 409 posterior sea fácil de debuggear — el
+  // developer verá en consola que el seatIdMap vino del
+  // sessionStorage y puede comparar con los holds en la BD.
   if (selectedSeatsFull.length === 0) {
     const fallbackSeats = readCheckoutSeatsFromStorage()
     if (fallbackSeats.length > 0) {
       console.warn(
         '[Checkout] selectedSeatsFull no vino en location.state; ' +
           'recuperando respaldo desde sessionStorage.',
-        { key: CHECKOUT_SEATS_STORAGE_KEY, count: fallbackSeats.length },
+        {
+          key: CHECKOUT_SEATS_STORAGE_KEY,
+          count: fallbackSeats.length,
+          idAsientos: fallbackSeats.map((s) => s.id_asiento),
+        },
       )
       selectedSeatsFull = fallbackSeats
     }
@@ -1062,7 +1079,7 @@ export default function CheckoutPage({
   )
   const [buyerIsPax1, setBuyerIsPax1] = useState(false)
   const [useProfileForPax1, setUseProfileForPax1] = useState(false)
-  const [wantsCreateAccount, setWantsCreateAccount] = useState(false)
+  // create-account checkbox removido (BUG-083, ver audit)
   const [timeLeft, setTimeLeft] = useState(
     selectedSeats.length > 0 ? RESERVATION_SECONDS : null,
   )
@@ -1171,11 +1188,32 @@ export default function CheckoutPage({
       return
     }
     if (idViaje) {
-      navigate(`/viaje/${idViaje}/asientos`)
+      // FIX bug "Resumen de Compra muestra guiones":
+      // Antes navegaba al mapa de asientos SIN pasar el state.
+      // Eso borraba `trip`, `searchValues`, `origin`, `destination`,
+      // `company`, `departureTime` y `date` del location.state, y al
+      // re-entrar a checkout la pantalla los recibía como null.
+      //
+      // Reenviamos el state completo (campos explícitos para que
+      // ESLint no se queje de que `stateData` cambia en cada render)
+      // para que el flujo "checkout → volver → seleccionar más →
+      // checkout" preserve los datos del viaje original.
+      navigate(`/viaje/${idViaje}/asientos`, {
+        state: {
+          trip,
+          origin: stateData.origin,
+          destination: stateData.destination,
+          company: stateData.company,
+          departureTime: stateData.departureTime,
+          date,
+          idViaje,
+          searchValues: stateData.searchValues,
+        },
+      })
     } else {
       navigate(-1)
     }
-  }, [onBack, idViaje, navigate])
+  }, [onBack, idViaje, navigate, trip, date, stateData])
 
   const handleChangePassenger = (index, updated) => {
     setPassengers((prev) => prev.map((p, i) => (i === index ? updated : p)))
@@ -1270,6 +1308,7 @@ export default function CheckoutPage({
       passengers,
       seatIdMap,
       paymentMethod,
+      acceptedTerms, // FIX BUG-111
     })
 
     console.log(
@@ -1292,7 +1331,7 @@ export default function CheckoutPage({
       setBuyer(getEmptyBuyer())
       setAcceptedTerms(false)
       setUseProfileForPax1(false)
-      setWantsCreateAccount(false)
+
       onPaymentSuccess?.({ passengers, buyer, paymentMethod })
 
       navigate('/checkout/success', {
@@ -1312,10 +1351,31 @@ export default function CheckoutPage({
           err,
         },
       )
-      setPayError(
-        err?.message ||
-          'No pudimos procesar el pago. Intenta nuevamente en unos minutos.',
-      )
+      // FIX UX: cuando el backend devuelve 409 con un mensaje
+      // genérico como "Algunos asientos no tienen un bloqueo
+      // activo para esta sesión" o "El asiento X ya tiene un
+      // boleto activo", el usuario no sabe que probablemente
+      // una compra anterior completó pero la página de éxito
+      // crasheó (problema conocido en versiones viejas). Lo
+      // guiamos a verificar "Mis Viajes" antes de reintentar.
+      const isConflict = err?.status === 409
+      const lowerMessage = String(err?.message || '').toLowerCase()
+      const isStale =
+        lowerMessage.includes('ya tiene un boleto activo') ||
+        lowerMessage.includes('bloqueo activo')
+      if (isConflict && isStale) {
+        setPayError(
+          'Uno o más asientos ya fueron vendidos. Esto puede pasar ' +
+            'si una compra anterior completó pero no pudiste ver la ' +
+            'confirmación. Revisa "Mis Viajes" para ver si ya tienes ' +
+            'estos boletos.',
+        )
+      } else {
+        setPayError(
+          err?.message ||
+            'No pudimos procesar el pago. Intenta nuevamente en unos minutos.',
+        )
+      }
     } finally {
       setIsProcessing(false)
     }
@@ -1354,9 +1414,6 @@ export default function CheckoutPage({
               onToggleUseProfileForPax1={handleToggleUseProfileForPax1}
               hasProfileData={hasProfileData}
               buyerReadOnlyReason={buyerReadOnlyReason}
-              showCreateAccountCheckbox={!isAuthenticated}
-              createAccountChecked={wantsCreateAccount}
-              onToggleCreateAccount={setWantsCreateAccount}
             />
 
             <aside className="flex flex-col gap-6">
@@ -1436,9 +1493,6 @@ export default function CheckoutPage({
               onToggleBuyerIsPax1={handleToggleBuyerIsPax1}
               isLoggedIn={isAuthenticated}
               buyerReadOnlyReason={buyerReadOnlyReason}
-              showCreateAccountCheckbox={!isAuthenticated}
-              createAccountChecked={wantsCreateAccount}
-              onToggleCreateAccount={setWantsCreateAccount}
             />
           </article>
 

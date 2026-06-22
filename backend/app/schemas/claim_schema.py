@@ -15,7 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 class ReclamoBase(BaseModel):
     id_agencia: int = Field(..., ge=1)
     motivo: str = Field(..., min_length=1, max_length=150)
-    detalle: str = Field(..., min_length=1)
+    # FIX BUG-135: max_length evita payloads enormes (DoS por JSON pesado).
+    detalle: str = Field(..., min_length=1, max_length=5000)
 
 
 class ReclamoCreate(ReclamoBase):
@@ -28,7 +29,7 @@ class ReclamoUpdate(BaseModel):
     """Actualización del estado / respuesta (RF-19)."""
 
     estado: Optional[str] = None
-    detalle: Optional[str] = None
+    detalle: Optional[str] = Field(default=None, max_length=5000)
 
     @field_validator("estado")
     @classmethod
@@ -55,7 +56,8 @@ class ReclamoRead(ReclamoBase):
 # ============================================================================
 
 class MensajeReclamoBase(BaseModel):
-    text_mensaje: str = Field(..., min_length=1)
+    # FIX BUG-136: max_length evita DoS por mensajes enormes.
+    text_mensaje: str = Field(..., min_length=1, max_length=5000)
 
 
 class MensajeReclamoCreate(MensajeReclamoBase):
@@ -85,7 +87,7 @@ class ReclamoRespuestaAdmin(BaseModel):
     """Payload para que el admin de agencia responda / cierre un reclamo."""
 
     estado: str
-    respuesta: str = Field(..., min_length=1)
+    respuesta: str = Field(..., min_length=1, max_length=5000)
 
     @field_validator("estado")
     @classmethod

@@ -51,12 +51,19 @@ export async function fetchSeatMapRequest(idViaje) {
 /**
  * POST /v1/seats/hold
  * Crea (o renueva) un bloqueo temporal sobre el par (id_viaje, id_asiento).
+ *
+ * FIX bug "deselect zombie": si el usuario está autenticado, enviamos
+ * `id_usuario` para que el hold quede vinculado al usuario. Esto
+ * permite que el release posterior (que filtra por `id_usuario` cuando
+ * está presente) encuentre el hold correctamente aunque haya cambios
+ * de estado de login entre la selección y la deselección.
  */
 export async function holdSeatRequest({
   idViaje,
   idAsiento,
   tokenSesion = null,
   segundosTtl = null,
+  idUsuario = null,
 }) {
   try {
     const body = {
@@ -65,6 +72,7 @@ export async function holdSeatRequest({
     }
     if (tokenSesion) body.token_sesion = tokenSesion
     if (segundosTtl) body.segundos_ttl = segundosTtl
+    if (idUsuario) body.id_usuario = idUsuario
 
     const { data } = await axiosInstance.post('/seats/hold', body)
     return {
@@ -127,5 +135,39 @@ export async function releaseSeatRequest({
       }
     }
     throw unwrapError(err)
+  }
+}
+
+/**
+ * FIX BUG-049/050/051: libera MÚLTIPLES holds vía `navigator.sendBeacon`
+ * en el evento `beforeunload`. Se usa SOLO cuando el usuario cierra
+ * la pestaña, navega con BACK, o hace F5 — eventos donde las
+ * requests asíncronas no se garantizan completar. `sendBeacon` es
+ * la única API del navegador que entrega un POST al backend
+ * durante el cierre de la página (síncrono desde el punto de
+ * vista del backend, asíncrono desde el JS).
+ *
+ * @param {Array<{idViaje:number, idAsiento:number, tokenSesion:string}>} items
+ * @returns {boolean} true si el navegador aceptó el beacon.
+ */
+export function releaseHoldsBeacon(items) {
+  if (!Array.isArray(items) || items.length === 0) return false
+  if (typeof navigator === 'undefined' || !navigator.sendBeacon) return false
+  const payload = JSON.stringify({
+    items: items.map((it) => ({
+      id_viaje: it.idViaje,
+      id_asiento: it.idAsiento,
+      token_sesion: it.tokenSesion,
+    })),
+  })
+  try {
+    const blob = new Blob([payload], { type: 'application/json' })
+    return navigator.sendBeacon(
+      `${axiosInstance.defaults.baseURL}/seats/release-sync`,
+      blob,
+    )
+  } catch (err) {
+    console.warn('[seats] sendBeacon failed', err)
+    return false
   }
 }

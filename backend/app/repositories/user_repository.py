@@ -8,8 +8,10 @@ Su responsabilidad es CRUD puro y queries filtradas.
 
 from typing import Optional
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.security import normalize_email
 from app.models import Usuario
 
 
@@ -28,10 +30,19 @@ class UserRepository:
         )
 
     def get_by_email(self, email: str) -> Optional[Usuario]:
-        """Busca un usuario por su correo electrónico (índice único)."""
+        """
+        Busca un usuario por su correo electrónico (índice único).
+
+        FIX BUG-002/020: comparación case-insensitive via `func.lower()`
+        para alinear con el índice único `uq_usuarios_email_lower`.
+        El caller debe pasar el email ya normalizado con `normalize_email`.
+        """
+        normalized = normalize_email(email)
+        if not normalized:
+            return None
         return (
             self.db.query(Usuario)
-            .filter(Usuario.email == email)
+            .filter(func.lower(Usuario.email) == normalized)
             .first()
         )
 

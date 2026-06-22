@@ -133,6 +133,7 @@ estado_ticket_enum = sa.Enum(
 
 estado_bloqueo_temporal_enum = sa.Enum(
     "activo",
+    "liberado",
     "expirado",
     "convertido",
     name="estado_bloqueo_temporal",

@@ -12,6 +12,10 @@ Implementa el flujo completo del Libro de Reclamaciones:
 Al crear un reclamo y al recibir respuesta del admin se envía un
 email al pasajero (RF-08). Si `RESEND_API_KEY` no está configurada
 los emails se omiten sin fallar el flujo.
+
+FIX BUG-138: el endpoint `/respond` valida que el caller sea
+`admin_agencia` (de la misma agencia del reclamo) o `superadmin`.
+Un pasajero NO puede cambiar el estado de su propio reclamo.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -204,6 +208,11 @@ def respond_claim(
     Admin de la agencia (o superadmin) responde y/o cierra un reclamo.
     Cambia el estado, registra la respuesta como mensaje en el hilo
     y notifica al pasajero por email (RF-08).
+
+    FIX BUG-138: valida que el caller sea:
+      - `admin_agencia` con `id_agencia == reclamo.id_agencia`, o
+      - `superadmin`.
+    Un pasajero (`rol='cliente'`) NO puede invocar este endpoint.
     """
     repo = ReclamoRepository(db)
     reclamo = repo.get_by_id(id_reclamo)
@@ -212,6 +221,21 @@ def respond_claim(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Reclamo no encontrado",
         )
+
+    # FIX BUG-138: autorización por rol. Re-leemos el usuario para tener
+    # `rol` e `id_agencia` actualizados.
+    caller = db.get(Usuario, current_user_id)
+    if caller is None or caller.rol not in {"admin_agencia", "superadmin"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo admin_agencia o superadmin pueden responder reclamos",
+        )
+    if caller.rol == "admin_agencia" and caller.id_agencia != reclamo.id_agencia:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para responder reclamos de otra agencia",
+        )
+
     repo.update_estado(
         reclamo=reclamo,
         nuevo_estado=payload.estado,

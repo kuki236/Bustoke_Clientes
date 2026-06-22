@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import {
-  clearAccessToken,
+  clearAllTokens,
   setAccessToken,
+  setRefreshToken,
   getAccessToken,
 } from '../api/axiosInstance'
 import {
@@ -13,6 +14,22 @@ import {
 const AuthContext = createContext(null)
 
 const INITIAL_USER = null
+
+// FIX BUG-017: clave del sessionStorage que guarda los holds del
+// SeatSelectionPage. Si el usuario hace logout, debemos limpiar
+// para que otro usuario en la misma máquina no herede los holds.
+const SEAT_SESSION_KEYS = [
+  'bustoke_seat_session_token',
+  'bustoke_checkout_seats_full',
+]
+
+function clearSeatSession() {
+  try {
+    SEAT_SESSION_KEYS.forEach((k) => sessionStorage.removeItem(k))
+  } catch {
+    // ignore
+  }
+}
 
 export function AuthProvider({ children }) {
   const hasInitialToken = Boolean(getAccessToken())
@@ -30,7 +47,7 @@ export function AuthProvider({ children }) {
       })
       .catch((err) => {
         if (cancelled) return
-        clearAccessToken()
+        clearAllTokens()
         setUser(INITIAL_USER)
         if (err?.status !== 401) {
           setError(err?.message || 'No se pudo rehidratar la sesión.')
@@ -48,8 +65,12 @@ export function AuthProvider({ children }) {
   const loginUser = useCallback(async (email, password) => {
     setError(null)
     try {
-      const { token, user: fetchedUser } = await loginRequest({ email, password })
-      if (token) setAccessToken(token)
+      const { accessToken, refreshToken, user: fetchedUser } = await loginRequest({
+        email,
+        password,
+      })
+      if (accessToken) setAccessToken(accessToken)
+      if (refreshToken) setRefreshToken(refreshToken)
       setUser(fetchedUser)
       return fetchedUser
     } catch (err) {
@@ -61,7 +82,7 @@ export function AuthProvider({ children }) {
   const registerUser = useCallback(async (formData) => {
     setError(null)
     try {
-      const { token, user: registeredUser } = await registerRequest({
+      const { accessToken, refreshToken, user: registeredUser } = await registerRequest({
         nombres: formData.nombres,
         apellido_paterno: formData.apellido_paterno,
         apellido_materno: formData.apellido_materno,
@@ -71,19 +92,24 @@ export function AuthProvider({ children }) {
         contrasena: formData.contrasena ?? formData.password,
         telefono: formData.telefono,
       })
-      if (token) {
-        setAccessToken(token)
+      if (accessToken) {
+        setAccessToken(accessToken)
+        if (refreshToken) setRefreshToken(refreshToken)
         setUser(registeredUser)
       }
-      return { token, user: registeredUser }
+      return { accessToken, refreshToken, user: registeredUser }
     } catch (err) {
       setError(err?.message || 'No se pudo completar el registro.')
       throw err
     }
   }, [])
 
+  // FIX BUG-017: logout limpia tokens de auth Y sessionStorage de
+  // holds (FIX BUG-049/050/051). El próximo usuario en la misma
+  // máquina no hereda los holds del usuario anterior.
   const logout = useCallback(() => {
-    clearAccessToken()
+    clearAllTokens()
+    clearSeatSession()
     setUser(INITIAL_USER)
     setError(null)
   }, [])

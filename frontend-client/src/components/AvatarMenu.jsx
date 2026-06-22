@@ -94,10 +94,10 @@ export default function AvatarMenu({
         className="flex items-center gap-2 rounded-full hover:opacity-90 transition-opacity"
       >
         <span
-          className={`flex items-center justify-center w-9 h-9 rounded-full text-sm font-semibold transition-colors ${
+          className={`flex items-center justify-center w-9 h-9 rounded-full text-sm font-semibold transition-all duration-200 ${
             isLight
-              ? 'bg-white text-blue-600 ring-2 ring-white/30'
-              : 'bg-blue-600 text-white hover:bg-blue-700'
+              ? 'bg-white text-blue-600 ring-2 ring-blue-100'
+              : 'bg-blue-600 text-white ring-2 ring-blue-600/20 hover:bg-blue-700'
           }`}
         >
           {initials}

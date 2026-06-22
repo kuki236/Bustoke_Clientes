@@ -44,6 +44,15 @@ class BookingService:
            omite sin fallar la compra.
         """
         with self.db.begin():
+            # FIX BUG-111: rechazar checkout si el comprador no aceptó
+            # los términos y políticas. Antes el server_default='true'
+            # marcaba TODOS los boletos como aceptados sin importar
+            # el checkbox del frontend.
+            if not getattr(payload, "acepto_terminos_politicas", False):
+                raise ValueError(
+                    "Debes aceptar los términos y políticas para continuar."
+                )
+
             viaje = self.repo.get_viaje(payload.id_viaje)
             if viaje is None:
                 raise ValueError(f"Viaje {payload.id_viaje} no encontrado")
@@ -128,6 +137,11 @@ class BookingService:
                         "codigo_qr": codigo_qr,
                         "precio_final": precio,
                         "estado": "activo",
+                        # FIX BUG-111: persistir el valor real del
+                        # checkbox enviado por el frontend.
+                        "acepto_terminos_politicas": bool(
+                            getattr(payload, "acepto_terminos_politicas", False)
+                        ),
                     }
                 )
                 self.repo.create_pago(

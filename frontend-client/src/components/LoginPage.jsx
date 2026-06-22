@@ -235,7 +235,7 @@ function LoginForm({ onChangeMode, onBack, isDesktop = false }) {
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-3 my-6">
+      <div className="flex items-center justify-between gap-3 mt-4 mb-6">
         <label
           htmlFor="recordar"
           className="inline-flex items-center gap-2 text-sm text-neutral-700 cursor-pointer"

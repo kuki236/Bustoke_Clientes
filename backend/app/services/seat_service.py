@@ -39,6 +39,7 @@ class SeatService:
         id_asiento: int,
         segundos_ttl: Optional[int] = None,
         token_sesion: Optional[str] = None,
+        id_usuario: Optional[int] = None,
     ) -> dict:
         """
         Crea (o renueva) un bloqueo temporal sobre el par (viaje, asiento).
@@ -48,12 +49,25 @@ class SeatService:
         - El asiento no pertenece al bus del viaje.
         - El asiento ya está ocupado por un boleto activo.
         - El asiento ya tiene un bloqueo vigente (de otro origen).
+
+        FIX BUG-041/XBUG-011: la operación de creación está envuelta en
+        un SAVEPOINT (sub-transaction) que atrapa `IntegrityError`. La BD
+        tiene un índice único PARCIAL `uq_bloqueo_activo_viaje_asiento`
+        (estado='activo') que actúa como red de seguridad final contra
+        race conditions entre 2+ requests concurrentes intentando hold-ear
+        el mismo asiento. Si la UNIQUE salta, devolvemos 409 ordenado.
+
+        FIX bug "deselect deja hold zombie": el frontend envía ahora
+        `id_usuario` al crear el hold, así el release posterior (que
+        filtra por `id_usuario` cuando está presente) puede encontrarlo
+        correctamente aunque cambie el estado de login.
         """
+        from sqlalchemy.exc import IntegrityError
+
         viaje = self.travels.get_by_id(id_viaje)
         if viaje is None:
             raise ValueError(f"Viaje {id_viaje} no encontrado")
 
-        # Verificamos que el asiento sea del bus del viaje.
         from sqlalchemy import select
 
         from app.models import Asiento
@@ -78,7 +92,16 @@ class SeatService:
         existing = self.seats.get_active_hold(id_viaje, id_asiento)
         if existing is not None:
             # Si el bloqueo existente es del mismo token, lo renovamos.
-            if token_sesion and existing.token_sesion == token_sesion:
+            # Para que la "renovación" funcione cuando el usuario está
+            # logueado, comparamos también por `id_usuario` (si está
+            # presente en ambos lados). Si el hold original no tenía
+            # id_usuario pero el nuevo sí, los tratamos como "distintos"
+            # para no pisar el hold de otra sesión.
+            same_session = token_sesion and existing.token_sesion == token_sesion
+            if same_session and (
+                (existing.id_usuario is None and id_usuario is None)
+                or (existing.id_usuario == id_usuario)
+            ):
                 ttl = segundos_ttl or settings.SEAT_HOLD_TTL_SECONDS
                 from datetime import datetime, timedelta, timezone
 
@@ -89,12 +112,26 @@ class SeatService:
 
         ttl = segundos_ttl or settings.SEAT_HOLD_TTL_SECONDS
         token = token_sesion or self._generate_token()
-        hold = self.seats.create_hold(
-            id_viaje=id_viaje,
-            id_asiento=id_asiento,
-            token_sesion=token,
-            segundos_ttl=ttl,
-        )
+
+        # FIX BUG-041: SAVEPOINT para aislar el INSERT del resto de la
+        # transacción. Si el índice único PARCIAL salta (otro request
+        # ganó la carrera), hacemos rollback del savepoint (no de toda
+        # la transacción) y devolvemos 409. Sin esto, dos requests
+        # concurrentes podrían crear dos `bloqueos_temporales` activos
+        # para el mismo (viaje, asiento) -> overbooking.
+        try:
+            with self.db.begin_nested():
+                hold = self.seats.create_hold(
+                    id_viaje=id_viaje,
+                    id_asiento=id_asiento,
+                    token_sesion=token,
+                    segundos_ttl=ttl,
+                    id_usuario=id_usuario,
+                )
+        except IntegrityError:
+            self.db.rollback()
+            raise ValueError("El asiento ya está bloqueado por otro usuario")
+
         return self._hold_to_dict(hold, estado="activo")
 
     # ========================================================================

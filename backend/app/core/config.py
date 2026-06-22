@@ -9,7 +9,7 @@ configuración debe importar la instancia `settings` definida aquí.
 from functools import lru_cache
 from typing import List
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -50,8 +50,14 @@ class Settings(BaseSettings):
     JWT_API_KEY_EXPIRE_DAYS: int = 365
 
     # ---------- CORS ----------
+    # FIX BUG-010/XBUG-028: por default permitimos los 3 puertos
+    # comunes del frontend dev (3000 = CRA, 5173 = Vite, 4173 = Vite preview).
     CORS_ORIGINS: List[str] = Field(
-        default_factory=lambda: ["http://localhost:3000"]
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://localhost:4173",
+        ]
     )
 
     # ---------- Negocio ----------
@@ -64,6 +70,25 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @model_validator(mode="after")
+    def _validate_production_secrets(self):
+        """
+        FIX BUG-003: bloquea el arranque si en producción se usan los
+        valores por defecto inseguros de `SECRET_KEY` o `DB_PASSWORD`.
+        """
+        if self.APP_ENV == "production":
+            if self.SECRET_KEY == "change_me_in_production":
+                raise ValueError(
+                    "SECRET_KEY debe configurarse en producción "
+                    "(APP_ENV=production). Define un valor seguro en .env."
+                )
+            if self.DB_PASSWORD == "postgres":
+                raise ValueError(
+                    "DB_PASSWORD debe configurarse en producción "
+                    "(APP_ENV=production). No uses el default inseguro."
+                )
+        return self
 
     @property
     def database_url(self) -> str:

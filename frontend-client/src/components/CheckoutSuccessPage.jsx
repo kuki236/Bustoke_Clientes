@@ -11,6 +11,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import Navbar from './Navbar'
 import BottomNav from './BottomNav'
 import Alert from './Alert'
+import { useAuth } from '../context/AuthContext'
 
 const DEFAULT_DATE = '15/06/2026'
 const PAYMENT_METHOD_LABEL = {
@@ -204,6 +205,7 @@ function EmptyBookingState({ onHome }) {
 export default function CheckoutSuccessPage() {
   const navigate = useNavigate()
   const location = useLocation()
+  const { isAuthenticated } = useAuth()
   const { bookingResult, trip, date, paymentMethod } =
     location.state || {}
 
@@ -346,21 +348,33 @@ export default function CheckoutSuccessPage() {
                 <Share2 className="w-4 h-4" />
                 Compartir
               </button>
-              <button
-                type="button"
-                onClick={handleHome}
-                className="inline-flex items-center gap-2 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 px-5 py-2.5 rounded-md font-medium text-sm"
-              >
-                Volver al inicio
-              </button>
-              <button
-                type="button"
-                onClick={handleTrips}
-                className="inline-flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 font-medium px-5 py-2.5 rounded-md text-sm"
-              >
-                <Download className="w-4 h-4" />
-                Ver mis viajes
-              </button>
+              {isAuthenticated ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleHome}
+                    className="inline-flex items-center gap-2 border border-slate-200 text-slate-700 bg-white hover:bg-slate-50 px-5 py-2.5 rounded-md font-medium text-sm"
+                  >
+                    Volver al inicio
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTrips}
+                    className="inline-flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 font-medium px-5 py-2.5 rounded-md text-sm"
+                  >
+                    <Download className="w-4 h-4" />
+                    Ver mis viajes
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleHome}
+                  className="inline-flex items-center gap-2 bg-blue-600 text-white hover:bg-blue-700 font-medium px-5 py-2.5 rounded-md text-sm"
+                >
+                  Volver al inicio
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -403,13 +417,24 @@ export default function CheckoutSuccessPage() {
             >
               Volver al inicio
             </button>
-            <button
-              type="button"
-              onClick={handleTrips}
-              className="flex-1 py-3 rounded-xl border border-neutral-200 text-neutral-700 font-semibold text-sm hover:bg-neutral-50"
-            >
-              Mis viajes
-            </button>
+            {isAuthenticated ? (
+              <button
+                type="button"
+                onClick={handleTrips}
+                className="flex-1 py-3 rounded-xl border border-neutral-200 text-neutral-700 font-semibold text-sm hover:bg-neutral-50"
+              >
+                Mis viajes
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleShare}
+                className="flex-1 py-3 rounded-xl border border-neutral-200 text-neutral-700 font-semibold text-sm hover:bg-neutral-50 inline-flex items-center justify-center gap-1.5"
+              >
+                <Share2 className="w-4 h-4" />
+                Compartir
+              </button>
+            )}
           </div>
         </div>
 

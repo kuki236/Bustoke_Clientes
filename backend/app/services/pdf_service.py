@@ -5,10 +5,17 @@ Genera el PDF del boleto de viaje en el backend (usado por el email
 service para adjuntarlo a la confirmación de compra). El frontend
 también genera su propio PDF con `jsPDF` para descarga directa desde
 la pantalla Mis Viajes.
+
+FIX BUG-076/XBUG-018: los strings del boleto se sanitizan con
+`_pdf_safe_text()` antes de pasarlos a `reportlab`. `reportlab`
+NO interpreta HTML, pero igualmente removemos caracteres de control
+y normalizamos espacios para evitar inyecciones básicas en clientes
+PDF vulnerables.
 """
 
 from datetime import datetime
 from io import BytesIO
+import re
 
 import qrcode
 from reportlab.lib import colors
@@ -21,6 +28,20 @@ def _safe(value, fallback="—"):
     if value is None or value == "":
         return fallback
     return str(value).strip()
+
+
+# FIX BUG-076/XBUG-018: filtra caracteres que reportlab o visores PDF
+# puedan interpretar de forma inesperada (caracteres de control, tags
+# tipo <script>, etc.). No es HTML-escape porque PDF no renderiza HTML,
+# pero limita la superficie de ataque.
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _pdf_safe_text(value, fallback: str = "—") -> str:
+    if value is None:
+        return fallback
+    cleaned = _CONTROL_CHARS.sub("", str(value))
+    return cleaned.strip() or fallback
 
 
 def _format_price(value):
@@ -99,7 +120,7 @@ def generate_ticket_pdf(boleto: dict) -> bytes:
     c.drawRightString(
         width - 14 * mm,
         height - 18 * mm,
-        f"Empresa: {_safe(boleto.get('empresa'), 'BUSTOKE')}",
+        f"Empresa: {_pdf_safe_text(boleto.get('empresa'), 'BUSTOKE')}",
     )
     c.setFillColorRGB(0.06, 0.09, 0.16)
 
@@ -110,7 +131,7 @@ def generate_ticket_pdf(boleto: dict) -> bytes:
     c.drawString(14 * mm, y, "RUTA")
     c.setFillColorRGB(0.06, 0.09, 0.16)
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(14 * mm, y - 10 * mm, _safe(boleto.get("origen")))
+    c.drawString(14 * mm, y - 10 * mm, _pdf_safe_text(boleto.get("origen")))
     c.setFont("Helvetica", 9)
     c.setFillColorRGB(0.39, 0.45, 0.55)
     c.drawString(
@@ -127,7 +148,7 @@ def generate_ticket_pdf(boleto: dict) -> bytes:
 
     c.setFont("Helvetica-Bold", 16)
     c.setFillColorRGB(0.06, 0.09, 0.16)
-    c.drawString(14 * mm, y - 42 * mm, _safe(boleto.get("destino")))
+    c.drawString(14 * mm, y - 42 * mm, _pdf_safe_text(boleto.get("destino")))
     c.setFont("Helvetica", 9)
     c.setFillColorRGB(0.39, 0.45, 0.55)
     c.drawString(
@@ -139,14 +160,18 @@ def generate_ticket_pdf(boleto: dict) -> bytes:
         ("FECHA", _format_date(boleto.get("fecha_hora_salida"))),
         ("SALIDA", _format_time(boleto.get("fecha_hora_salida"))),
         ("LLEGADA", _format_time(boleto.get("fecha_hora_llegada"))),
-        ("ASIENTO", _safe(boleto.get("numero_asiento"))),
-        ("SERVICIO", _safe(boleto.get("tipo_servicio"), "Normal").upper()),
+        ("ASIENTO", _pdf_safe_text(boleto.get("numero_asiento"))),
+        ("SERVICIO", _pdf_safe_text(boleto.get("tipo_servicio"), "Normal").upper()),
         ("PRECIO", _format_price(boleto.get("precio_final"))),
         (
             "CHOFER",
-            _safe(boleto.get("chofer_nombre") if isinstance(boleto.get("chofer"), dict) else boleto.get("chofer")),
+            _pdf_safe_text(
+                boleto.get("chofer_nombre")
+                if isinstance(boleto.get("chofer"), dict)
+                else boleto.get("chofer")
+            ),
         ),
-        ("RAMPA", _safe(boleto.get("rampa_embarque"), "Por asignar")),
+        ("RAMPA", _pdf_safe_text(boleto.get("rampa_embarque"), "Por asignar")),
     ]
     grid_y = y - 70 * mm
     col_w = (width - 28 * mm) / 2
@@ -172,12 +197,15 @@ def generate_ticket_pdf(boleto: dict) -> bytes:
         c.drawString(x + 2 * mm, cy - 4 * mm, label)
         c.setFillColorRGB(0.06, 0.09, 0.16)
         c.setFont("Helvetica-Bold", 10)
-        c.drawString(x + 2 * mm, cy - 10 * mm, _safe(value))
+        c.drawString(x + 2 * mm, cy - 10 * mm, _pdf_safe_text(value))
 
     # ---- QR a la izquierda + instrucciones a la derecha ----
     qr_y = grid_y - 4 * row_h - 6 * mm
     qr_size = 50 * mm
-    qr_data = _safe(boleto.get("codigo_qr"), f"BUSTOKE-{boleto.get('id_boleto', '')}")
+    qr_data = _pdf_safe_text(
+        boleto.get("codigo_qr"),
+        f"BUSTOKE-{boleto.get('id_boleto', '')}",
+    )
     try:
         from reportlab.lib.utils import ImageReader
 

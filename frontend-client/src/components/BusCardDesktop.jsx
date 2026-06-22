@@ -7,19 +7,21 @@ function formatPrice(value) {
 
 function TimeStop({ time, city }) {
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col min-w-0">
       <span className="text-base font-semibold text-neutral-900">{time}</span>
-      <span className="text-xs text-neutral-500">{city}</span>
+      <span className="text-xs text-neutral-500 truncate" title={city}>
+        {city}
+      </span>
     </div>
   )
 }
 
 function BusLine() {
   return (
-    <div className="flex items-center gap-2 mx-4 min-w-[120px]">
-      <div className="flex-1 border-t border-dashed border-neutral-300" />
+    <div className="flex items-center gap-2 shrink-0">
+      <div className="w-12 border-t border-dashed border-neutral-300" />
       <Bus className="w-4 h-4 text-blue-600 shrink-0" />
-      <div className="flex-1 border-t border-dashed border-neutral-300" />
+      <div className="w-12 border-t border-dashed border-neutral-300" />
     </div>
   )
 }
@@ -88,7 +90,7 @@ export default function BusCardDesktop({ trip, selected, onSelect, onChooseSeats
           <span className="text-sm font-semibold text-neutral-900">
             {trip.company}
           </span>
-          <div className="flex items-center">
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
             <TimeStop time={trip.departureTime} city={trip.origin} />
             <BusLine />
             <TimeStop time={trip.arrivalTime} city={trip.destination} />

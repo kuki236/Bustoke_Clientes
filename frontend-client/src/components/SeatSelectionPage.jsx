@@ -86,6 +86,7 @@ import {
   fetchSeatMapRequest,
   holdSeatRequest,
   releaseSeatRequest,
+  releaseHoldsBeacon,
   SEAT_STATUS,
 } from '../api/seats'
 import { useAuth } from '../context/AuthContext'
@@ -148,9 +149,53 @@ function resolveServiceTypeForFloor(seats) {
   return normalizeServiceType(seats[0].tipoServicio)
 }
 
+/**
+ * FIX bug UX "no se ve el precio del VIP antes de seleccionarlo":
+ * devuelve un objeto `{normal: 50, vip: 110}` con los precios distintos
+ * que existen en el piso (solo los tipos que tienen al menos 1 asiento).
+ * Si solo hay un tipo, el objeto tiene una sola key.
+ *
+ * Se usa para que el header muestre "Normal · S/ 50 · VIP · S/ 110"
+ * en lugar del `list[0].precio` que mentía cuando el primer asiento
+ * era el más barato.
+ */
+function resolvePriceByServiceType(seats) {
+  const out = {}
+  if (!Array.isArray(seats)) return out
+  for (const seat of seats) {
+    const type = normalizeServiceType(seat.tipoServicio)
+    if (!type) continue
+    if (out[type] === undefined) {
+      out[type] = Number(seat.precio) || 0
+    }
+  }
+  return out
+}
+
+function formatPriceLabel(pricesByType) {
+  const entries = Object.entries(pricesByType)
+  if (entries.length === 0) return ''
+  // Orden estable: Normal primero, VIP después (si están los dos)
+  const order = ['Normal', 'Vip', 'VIP']
+  entries.sort(([a], [b]) => {
+    const ia = order.findIndex((o) => o.toLowerCase() === a.toLowerCase())
+    const ib = order.findIndex((o) => o.toLowerCase() === b.toLowerCase())
+    if (ia === -1 && ib === -1) return 0
+    if (ia === -1) return 1
+    if (ib === -1) return -1
+    return ia - ib
+  })
+  return entries
+    .map(([type, price]) => `${type} · S/ ${Number(price).toFixed(2)}`)
+    .join(' · ')
+}
+
 function resolveFloorTitle(floor, seats) {
   const baseLabel = FLOOR_LABELS[floor] || `Piso ${floor}`
   const serviceType = resolveServiceTypeForFloor(seats)
+  // FIX bug UX: si el piso tiene tipos mixtos (Normal + VIP), el
+  // desglose de precios se muestra en el subheader del piso (abajo
+  // del título), no acá, para no hacer el título demasiado largo.
   return serviceType ? `${baseLabel} (${serviceType})` : baseLabel
 }
 
@@ -345,6 +390,10 @@ function BusLayout({ seats, floor, selectedIds, busyIds, onToggle }) {
 }
 
 function Legend({ showBlocked = true }) {
+  // FIX bug UX: el precio del VIP (y de cualquier tipo) se muestra
+  // en el subheader de cada piso, no acá. La leyenda solo cubre
+  // los ESTADOS visuales (libre/ocupado/bloqueado/seleccionado) para
+  // no duplicar información y mantener la barra compacta.
   const items = [
     { label: 'Libre', swatch: 'bg-white border-blue-600' },
     { label: 'Ocupado', swatch: 'bg-red-600 border-red-600' },
@@ -606,23 +655,93 @@ export default function SeatSelectionPage() {
     }
   }, [selectedIds, idViaje, sessionToken, currentUserId])
 
+  // FIX BUG-049/050/051: cleanup unificado. Hay 3 eventos de cierre
+  // que tenemos que cubrir:
+  //   1. `pagehide` + `beforeunload` → `navigator.sendBeacon` (única
+  //      API garantizada en cierre de pestaña)
+  //   2. React unmount normal (navigate('/checkout'), navigate(-1) por
+  //      código) → `releaseSeatRequest` async normal con await
+  //   3. F5 (reload) → `sendBeacon` cubre el caso porque `pagehide`
+  //      se dispara antes de que la pestaña se destruya
+  //
+  // Para evitar doble-release, marcamos `beaconFiredRef` después de
+  // enviar el beacon; el cleanup async solo se ejecuta si el beacon
+  // NO se disparó.
+  const beaconFiredRef = useRef(false)
+  const selectedIdsRef = useRef(selectedIds)
+  const idViajeRef = useRef(idViaje)
+  const sessionTokenRef = useRef(sessionToken)
+  const currentUserIdRef = useRef(currentUserId)
+  // FIX BUG checkout "Algunos asientos no tienen un bloqueo activo":
+  // marca que la siguiente navegación es hacia /checkout, así el cleanup
+  // de unmount NO libera los holds (los necesitamos vivos en el
+  // CheckoutPage para que /v1/bookings/process los encuentre).
+  const navigatingToCheckoutRef = useRef(false)
+
+  useEffect(() => {
+    selectedIdsRef.current = selectedIds
+  }, [selectedIds])
+  useEffect(() => {
+    idViajeRef.current = idViaje
+  }, [idViaje])
+  useEffect(() => {
+    sessionTokenRef.current = sessionToken
+  }, [sessionToken])
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId
+  }, [currentUserId])
+
+  useEffect(() => {
+    const fireBeacon = () => {
+      const ids = selectedIdsRef.current
+      if (!ids || ids.length === 0) return
+      if (beaconFiredRef.current) return
+      const items = ids.map((idAsiento) => ({
+        idViaje: idViajeRef.current,
+        idAsiento,
+        tokenSesion: sessionTokenRef.current,
+      }))
+      const ok = releaseHoldsBeacon(items)
+      if (ok) beaconFiredRef.current = true
+    }
+    // pagehide cubre F5, cerrar pestaña, navegación away
+    window.addEventListener('pagehide', fireBeacon)
+    // beforeunload es backup en navegadores viejos
+    window.addEventListener('beforeunload', fireBeacon)
+    return () => {
+      window.removeEventListener('pagehide', fireBeacon)
+      window.removeEventListener('beforeunload', fireBeacon)
+    }
+  }, [])
+
   useEffect(() => {
     return () => {
-      const holds = selectedIds
-      if (holds.length === 0) return
+      // Si el beacon YA se disparó (caso BACK / F5), no duplicar
+      // requests por el cleanup async.
+      if (beaconFiredRef.current) return
+      // FIX checkout 409: si el unmount se debe a que vamos a
+      // /checkout, NO liberamos los holds — los necesitamos activos
+      // para que POST /v1/bookings/process los encuentre. El
+      // CheckoutPage los liberará al expirar (su propio timer) o al
+      // cancelar / volver.
+      if (navigatingToCheckoutRef.current) return
+      const holds = selectedIdsRef.current
+      if (!holds || holds.length === 0) return
+      const currentSession = sessionTokenRef.current
+      const currentViaje = idViajeRef.current
+      const currentUser = currentUserIdRef.current
       holds.forEach((idAsiento) => {
         const body = {
-          idViaje,
+          idViaje: currentViaje,
           idAsiento,
-          tokenSesion: sessionToken,
+          tokenSesion: currentSession,
         }
-        if (currentUserId) body.idUsuario = currentUserId
+        if (currentUser) body.idUsuario = currentUser
         releaseSeatRequest(body).catch((err) => {
           console.warn('[SeatSelection] unmount release failed', err)
         })
       })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const grouped = useMemo(() => {
@@ -734,6 +853,7 @@ export default function SeatSelectionPage() {
           idViaje,
           idAsiento: seat.idAsiento,
           tokenSesion: sessionToken,
+          idUsuario: currentUserId,
         })
         setSelectedIds((prev) => [...prev, seat.idAsiento])
         setSeatMap((prev) => {
@@ -802,6 +922,12 @@ export default function SeatSelectionPage() {
       // ignore (modo privado sin storage)
     }
 
+    // FIX checkout 409: marca la navegación hacia /checkout ANTES de
+    // navigate() para que el cleanup de unmount del SeatSelectionPage
+    // NO libere los holds por accidente (los necesitamos vivos en el
+    // CheckoutPage para que /v1/bookings/process los encuentre).
+    navigatingToCheckoutRef.current = true
+
     navigate('/checkout', {
       state: {
         idViaje,
@@ -834,10 +960,22 @@ export default function SeatSelectionPage() {
   const tripTitle = `${company} • ${origin} a ${destination}`
   const visibleSeats = grouped.get(Number(activeFloor)) || []
   const visibleServiceType = resolveServiceTypeForFloor(visibleSeats) || 'Normal'
+  const pricesByType = useMemo(
+    () => resolvePriceByServiceType(visibleSeats),
+    [visibleSeats],
+  )
+  const priceLabel = formatPriceLabel(pricesByType)
   const floorPrice = useMemo(() => {
+    // FIX bug UX: si el piso tiene precios mixtos, usamos el
+    // mínimo (sigue siendo útil para mostrar "desde S/ X"). El
+    // header `priceLabel` muestra el desglose completo.
     const list = grouped.get(Number(activeFloor)) || []
     if (list.length === 0) return precioBase
-    return list[0].precio
+    const min = list.reduce(
+      (acc, s) => Math.min(acc, Number(s.precio) || Infinity),
+      Infinity,
+    )
+    return Number.isFinite(min) ? min : precioBase
   }, [grouped, activeFloor, precioBase])
 
   if (!validId) {
@@ -896,23 +1034,48 @@ export default function SeatSelectionPage() {
           )}
 
           {loading ? (
-            <div className="grid md:grid-cols-2 gap-8" aria-busy="true">
-              {[0, 1].map((i) => (
+            // FIX bug visual: el grid era siempre md:grid-cols-2,
+            // dejando la 2da columna vacía cuando el bus tiene 1 piso.
+            <div
+              className={`grid gap-8 ${
+                floors.length > 1 ? 'md:grid-cols-2' : 'md:grid-cols-1 md:max-w-md md:mx-auto'
+              }`}
+              aria-busy="true"
+            >
+              {floors.map((floor) => (
                 <div
-                  key={i}
+                  key={floor}
                   className="h-72 rounded-2xl bg-white shadow-card animate-pulse"
                 />
               ))}
             </div>
           ) : (
-            <div className="grid md:grid-cols-2 gap-8">
+            // FIX bug visual: misma corrección para el grid renderizado.
+            // Si hay 1 piso, el contenedor se centra y limita su ancho
+            // (md:max-w-md) para evitar el hueco a la derecha.
+            <div
+              className={`grid gap-8 ${
+                floors.length > 1 ? 'md:grid-cols-2' : 'md:grid-cols-1 md:max-w-md md:mx-auto'
+              }`}
+            >
               {floors.map((floor) => {
                 const floorSeats = grouped.get(floor) || []
+                const floorPrices = resolvePriceByServiceType(floorSeats)
+                const floorPriceLabel = formatPriceLabel(floorPrices)
                 return (
                   <section key={floor} className="flex flex-col gap-4">
                     <h2 className="text-center text-lg font-semibold text-neutral-900">
                       {resolveFloorTitle(floor, floorSeats)}
                     </h2>
+                    {/* FIX bug UX "no se ve el precio del VIP antes de
+                        seleccionarlo": desglose por tipo de servicio
+                        visible ANTES de que el usuario clickee nada. */}
+                    {floorPriceLabel && (
+                      <p className="text-center text-xs font-medium text-neutral-600 -mt-2">
+                        {floorPriceLabel}
+                        <span className="text-neutral-400"> c/u</span>
+                      </p>
+                    )}
                     <BusLayout
                       seats={floorSeats}
                       floor={floor}
@@ -959,7 +1122,10 @@ export default function SeatSelectionPage() {
             onChange={setActiveFloor}
           />
           <p className="text-xs text-white/80 mt-3">
-            Asientos: {visibleServiceType} · S/ {Number(floorPrice || 0).toFixed(2)} c/u
+            {priceLabel || (
+              // Fallback: piso sin asientos todavía (estado de carga)
+              <>Asientos: {visibleServiceType} · S/ {Number(floorPrice || 0).toFixed(2)} c/u</>
+            )}
           </p>
         </header>
 

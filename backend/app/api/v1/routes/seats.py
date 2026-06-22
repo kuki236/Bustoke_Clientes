@@ -5,11 +5,20 @@ Los endpoints `/hold` y `/release` operan contra la tabla
 `bloqueos_temporales` usando el TTL configurado en
 `SEAT_HOLD_TTL_SECONDS` (variable de entorno).
 
+El endpoint `/release-sync` es una variante tolerante a cierres abruptos
+de pestaña (FIX BUG-049/050/051): recibe los holds pendientes en el
+CUERPO como JSON y los libera, devolviendo siempre 200. El frontend lo
+invoca vía `navigator.sendBeacon()` en `beforeunload` para no dejar
+holds zombies.
+
 El endpoint `/checkout` queda como stub y se completará en la fase de
 pagos (RF-07).
 """
 
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -52,6 +61,7 @@ async def hold_seat(
             id_asiento=payload.id_asiento,
             segundos_ttl=payload.segundos_ttl,
             token_sesion=payload.token_sesion,
+            id_usuario=payload.id_usuario,
         )
     except ValueError as exc:
         message = str(exc)
@@ -112,6 +122,65 @@ async def release_hold(
             estado="sin_bloqueo",
         )
     return SeatHoldResult(**result)
+
+
+# ============================================================================
+# POST /v1/seats/release-sync - Liberar MÚLTIPLES holds vía sendBeacon
+# FIX BUG-049/050/051: previene "holds zombies" cuando el usuario
+#   - hace BACK del navegador
+#   - cierra la pestaña
+#   - hace F5
+#   - navega a otra URL
+# El frontend envía esta lista en `beforeunload` con navigator.sendBeacon().
+# El endpoint SIEMPRE retorna 200 con la lista de releases efectivos
+# (best-effort), independientemente de errores de BD.
+# ============================================================================
+
+class BeaconReleaseItem(BaseModel):
+    id_viaje: int = Field(..., ge=1)
+    id_asiento: int = Field(..., ge=1)
+    token_sesion: str = Field(..., min_length=1, max_length=255)
+
+
+class BeaconReleasePayload(BaseModel):
+    items: List[BeaconReleaseItem] = Field(..., max_length=50)
+
+
+@router.post(
+    "/release-sync",
+    summary="Liberar múltiples holds (sendBeacon / beforeunload)",
+    tags=["Seats"],
+)
+async def release_holds_beacon(
+    payload: BeaconReleasePayload,
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    FIX BUG-049/050/051: libera en batch los holds pendientes durante
+    el cierre de la pestaña. Tolerante: si un hold ya expiró, ya fue
+    convertido a boleto, o la BD da error transitorio, lo omitimos
+    silenciosamente y devolvemos 200. El navegador puede confiar en que
+    `sendBeacon` aceptó el mensaje.
+    """
+    service = SeatService(db)
+    released = 0
+    for item in payload.items:
+        try:
+            result = service.release_seat(
+                id_viaje=item.id_viaje,
+                id_asiento=item.id_asiento,
+                token_sesion=item.token_sesion,
+            )
+            if result.get("estado") == "liberado":
+                released += 1
+        except Exception:
+            # best-effort: nunca debe romper el cierre de la pestaña
+            continue
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+    return {"ok": True, "released": released, "total": len(payload.items)}
 
 
 # ============================================================================

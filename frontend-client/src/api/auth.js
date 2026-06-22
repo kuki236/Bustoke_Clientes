@@ -1,8 +1,13 @@
 import axiosInstance from './axiosInstance'
 
-function extractToken(payload) {
+function extractAccessToken(payload) {
   if (!payload) return null
   return payload.access_token ?? payload.accessToken ?? payload.token ?? null
+}
+
+function extractRefreshToken(payload) {
+  if (!payload) return null
+  return payload.refresh_token ?? payload.refreshToken ?? null
 }
 
 function extractUser(payload) {
@@ -85,13 +90,17 @@ export function normalizeUser(rawUser) {
 }
 
 export async function loginRequest({ email, password }) {
+  // FIX BUG-002/020: normalizar email a minúsculas antes de enviar.
+  // Combinado con el índice único lower(email) del backend, el
+  // login es ahora case-insensitive.
   const payload = {
-    email: String(email || '').trim(),
+    email: String(email || '').trim().toLowerCase(),
     password: String(password || ''),
   }
   const { data } = await axiosInstance.post('/auth/login', payload)
   return {
-    token: extractToken(data),
+    accessToken: extractAccessToken(data),
+    refreshToken: extractRefreshToken(data),
     user: normalizeUser(extractUser(data)),
     raw: data,
   }
@@ -107,20 +116,22 @@ export async function registerRequest({
   contrasena,
   telefono,
 }) {
+  // FIX BUG-002/020: lowercase en email para evitar duplicados por case.
   const payload = {
     nombres: String(nombres || '').trim(),
     apellido_paterno: String(apellido_paterno || '').trim(),
     apellido_materno: String(apellido_materno || '').trim(),
     tipo_documento: String(tipo_documento || '').trim(),
     numero_documento: String(numero_documento || '').trim(),
-    email: String(email || '').trim(),
+    email: String(email || '').trim().toLowerCase(),
     contrasena: String(contrasena || ''),
   }
   const tel = String(telefono || '').trim()
   if (tel) payload.telefono = tel
   const { data } = await axiosInstance.post('/auth/register', payload)
   return {
-    token: extractToken(data),
+    accessToken: extractAccessToken(data),
+    refreshToken: extractRefreshToken(data),
     user: normalizeUser(extractUser(data)),
     raw: data,
   }
