@@ -17,6 +17,7 @@ from app.core.database import get_db
 from app.core.security import decode_token
 from app.schemas.user_schema import (
     LoginRequest,
+    RefreshRequest,
     RegisterSchema,
     TokenResponse,
     UsuarioRead,
@@ -52,7 +53,7 @@ async def register_user(
     atómica en `usuarios` y `pasajeros` dentro de la misma
     transacción de PostgreSQL.
 
-    - Email único.
+    - Email único (case-insensitive: FIX BUG-002/020).
     - Contraseña con mínimo 8 caracteres (hasheada con bcrypt).
     - El rol se fuerza a `'cliente'` (alineado al ENUM de PostgreSQL).
     """
@@ -82,45 +83,52 @@ async def login(
 
 
 # ============================================================================
-# POST /v1/auth/refresh - Renovar tokens
+# POST /v1/auth/refresh - Renovar tokens (FIX BUG-016/021)
 # ============================================================================
 
 @router.post(
     "/refresh",
     response_model=TokenResponse,
-    summary="Renovar tokens a partir de un access token válido",
+    summary="Renovar tokens a partir de un refresh_token válido",
     tags=["Auth"],
 )
 async def refresh_token(
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    payload: RefreshRequest,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
     """
-    Acepta el access token actual en el header `Authorization: Bearer ...`
-    y emite un par de tokens nuevos.
+    FIX BUG-016/021: ahora recibe el `refresh_token` en el BODY (no en
+    el header). Esto permite que el frontend lo invoque desde el
+    response interceptor de axios SIN necesidad de sobrescribir el
+    Authorization header del request original.
+
+    El `refresh_token` tiene duración de `JWT_REFRESH_TOKEN_EXPIRE_DAYS`
+    (7 días por default) y es el ÚNICO mecanismo válido para obtener
+    nuevos access tokens. El access_token (60 min) NO puede refrescar
+    a sí mismo.
     """
-    if credentials is None or not credentials.credentials:
+    try:
+        decoded = decode_token(payload.refresh_token)
+    except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token no proporcionado",
+            detail=f"Refresh token inválido: {exc}",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    if decoded.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="El token proporcionado no es un refresh_token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
     try:
-        payload = decode_token(credentials.credentials)
-    except JWTError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Token inválido: {exc}",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from exc
-
-    try:
-        user_id = int(payload["sub"])
+        user_id = int(decoded["sub"])
     except (KeyError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token malformado",
+            detail="Token malformado: subject inválido",
         ) from exc
 
     service = AuthService(db)

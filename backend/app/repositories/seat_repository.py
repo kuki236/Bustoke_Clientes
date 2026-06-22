@@ -175,8 +175,18 @@ class SeatRepository:
         id_asiento: int,
         token_sesion: str,
         segundos_ttl: int,
+        id_usuario: Optional[int] = None,
     ) -> BloqueoTemporal:
-        """Crea un nuevo bloqueo temporal y refresca su expiración."""
+        """
+        Crea un nuevo bloqueo temporal y refresca su expiración.
+
+        FIX bug "deselect zombie": si se pasa `id_usuario`, el hold se
+        vincula al usuario. El release posterior podrá encontrarlo
+        filtrando por ambos campos. Si el frontend omite `id_usuario`
+        (caso guest), el hold queda con `id_usuario=NULL` y el release
+        filtra solo por `token_sesion` (que sigue siendo único por
+        sesión de navegador).
+        """
         now = datetime.now(timezone.utc)
         expira_at = now + __import__("datetime").timedelta(seconds=segundos_ttl)
 
@@ -184,6 +194,7 @@ class SeatRepository:
             id_viaje=id_viaje,
             id_asiento=id_asiento,
             token_sesion=token_sesion,
+            id_usuario=id_usuario,
             fecha_bloqueo=now,
             expira_at=expira_at,
             estado="activo",

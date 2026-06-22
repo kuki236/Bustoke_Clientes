@@ -179,6 +179,18 @@ class SeatHoldRequest(BaseModel):
         "genera uno nuevo. Si el bloqueo vigente pertenece al mismo "
         "token, se renueva la expiración.",
     )
+    # FIX bug "deselect deja hold zombie cuando user está logueado":
+    # el frontend debe enviar el id_usuario al crear el hold, así
+    # el release (que filtra por id_usuario cuando está presente)
+    # puede encontrarlo correctamente. Si se omite, el hold queda
+    # con id_usuario=NULL.
+    id_usuario: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="ID del usuario autenticado. Si se indica, el hold "
+        "se vincula al usuario para que el release posterior "
+        "lo encuentre aunque haya login state changes.",
+    )
 
 
 class SeatReleaseRequest(BaseModel):

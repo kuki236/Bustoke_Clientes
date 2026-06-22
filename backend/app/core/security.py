@@ -116,6 +116,18 @@ def decode_token(token: str) -> Dict[str, Any]:
         raise JWTError(f"Token inválido o expirado: {exc}") from exc
 
 
+def normalize_email(email: str) -> str:
+    """
+    FIX BUG-002/020/XBUG-033: normaliza emails a minúsculas y hace
+    strip de espacios. El índice único de la BD (`uq_usuarios_email_lower`)
+    también es case-insensitive, por lo que un email registrado con
+    mayúsculas no colisiona con su versión en minúsculas.
+    """
+    if email is None:
+        return ""
+    return str(email).strip().lower()
+
+
 # ============================================================================
 # API KEYS (RF-16) - Tokens para integraciones B2B de ventanilla física
 # ============================================================================

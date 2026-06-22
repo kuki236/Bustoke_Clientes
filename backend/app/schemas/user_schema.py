@@ -164,6 +164,15 @@ class TokenResponse(BaseModel):
     usuario: UsuarioRead
 
 
+class RefreshRequest(BaseModel):
+    """
+    FIX BUG-016/021: payload para `POST /v1/auth/refresh`.
+    El frontend envía el `refresh_token` (NO el access token) en el body.
+    """
+
+    refresh_token: str = Field(..., min_length=10, max_length=2048)
+
+
 # ============================================================================
 # PASAJERO
 # ============================================================================

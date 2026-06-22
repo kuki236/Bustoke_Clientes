@@ -60,6 +60,15 @@ class BookingProcessRequest(BaseModel):
     comprador: CompradorSchema
     pasajeros: List[PasajeroInputSchema] = Field(..., min_length=1)
     metodo_pago: str = Field(...)
+    # FIX BUG-111: el frontend debe enviar explícitamente la aceptación.
+    # Antes el server_default=true sobreescribía siempre, por lo que
+    # todos los boletos quedaban marcados aunque el usuario no hubiera
+    # marcado el checkbox (violación regulatoria para INDECOPI).
+    acepto_terminos_politicas: bool = Field(
+        default=False,
+        description="El comprador debe aceptar los términos y políticas "
+        "antes de procesar el pago. Si es False, el backend rechaza con 422.",
+    )
 
     @field_validator("metodo_pago")
     @classmethod

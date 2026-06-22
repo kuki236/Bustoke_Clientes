@@ -17,14 +17,9 @@ import AvatarMenu from './AvatarMenu'
 import BottomNav from './BottomNav'
 import Navbar from './Navbar'
 
-const TIPO_BIEN_OPTIONS = [
-  { value: 'producto', label: 'Producto', helper: 'Compra del boleto en sí' },
-  {
-    value: 'servicio',
-    label: 'Servicio',
-    helper: 'Atención en rampa, demora del bus, etc.',
-  },
-]
+// FIX BUG-144: el campo "Tipo de Bien" fue removido del formulario
+// porque el backend nunca lo persistía. La distinción producto/servicio
+// ya está implícita en el `motivo` y `detalle` que el pasajero redacta.
 
 const TRACKING_PREFIX = 'REC'
 const TRACKING_CHARS = '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ'
@@ -257,7 +252,6 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
     id_agencia:
       findAgencyIdByName(linkedTrip?.company) ||
       (initial?.id_agencia ? String(initial.id_agencia) : ''),
-    tipo_bien: linkedTrip ? 'servicio' : 'producto',
     detalle: buildLinkedDetalle(linkedTrip),
   })
 
@@ -334,7 +328,6 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
     if (!trip) {
       setForm((prev) => ({
         ...prev,
-        tipo_bien: 'producto',
         detalle: prev.detalle.replace(/^\[.*?\]\s*-\s*/, ''),
       }))
       return
@@ -342,7 +335,6 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
     setForm((prev) => ({
       ...prev,
       id_agencia: findAgencyIdByName(trip.company) || prev.id_agencia,
-      tipo_bien: 'servicio',
       detalle: buildLinkedDetalle(trip),
     }))
   }
@@ -352,7 +344,6 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
     setForm((prev) => ({
       ...prev,
       id_agencia: '',
-      tipo_bien: 'producto',
       detalle: prev.detalle.replace(/^\[.*?\]\s*-\s*/, ''),
     }))
   }
@@ -390,7 +381,6 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
         id_agencia: form.id_agencia,
         motivo: form.detalle.split(/\r?\n/, 1)[0]?.slice(0, 150) || 'Reclamo',
         detalle: form.detalle,
-        tipo_bien: form.tipo_bien,
       })
       const tracking = `REC-${String(created.id_reclamo).padStart(6, '0')}`
       setSuccess(tracking)
@@ -644,26 +634,6 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
           }))}
           required
         />
-
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-semibold text-neutral-900">
-            Tipo de Bien
-          </span>
-          <div className="grid sm:grid-cols-2 gap-3">
-            {TIPO_BIEN_OPTIONS.map((option) => (
-              <RadioOption
-                key={option.value}
-                name="tipo_bien"
-                value={option.value}
-                option={option}
-                selected={form.tipo_bien}
-                onChange={(value) =>
-                  setForm((prev) => ({ ...prev, tipo_bien: value }))
-                }
-              />
-            ))}
-          </div>
-        </div>
 
         <div className="flex flex-col gap-1.5">
           <FieldLabel htmlFor="detalle">Detalle</FieldLabel>

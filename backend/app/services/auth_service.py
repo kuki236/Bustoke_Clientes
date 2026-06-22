@@ -20,6 +20,7 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     hash_password,
+    normalize_email,
     verify_password,
 )
 from app.models import Pasajero, Usuario
@@ -51,7 +52,8 @@ class AuthService:
         personal en la tabla `pasajeros`.
 
         Flujo (transacción atómica):
-        1. Valida unicidad de email y catálogo de `tipo_documento`.
+        1. Normaliza email a minúsculas (FIX BUG-002/020) y valida
+           unicidad contra el catálogo de `tipo_documento`.
         2. INSERT en `usuarios` (email, password_hash, telefono, rol='cliente').
         3. `db.flush()` para materializar el `id_usuario` autoincremental
            sin cerrar la transacción.
@@ -63,9 +65,15 @@ class AuthService:
 
         Devuelve un `TokenResponse` listo para entregar al frontend.
         """
+        # FIX BUG-002/020: normalizar email a minúsculas antes de validar
+        # unicidad y persistir. Combinado con el índice único
+        # `uq_usuarios_email_lower` de la BD, "Juan@x.com" y "juan@x.com"
+        # son el mismo usuario.
+        normalized_email = normalize_email(payload.email)
+
         # 1. Validación de unicidad de email (pre-check; la BD también
         #    lo enforza con la UNIQUE constraint como red de seguridad).
-        if self.users.get_by_email(payload.email):
+        if self.users.get_by_email(normalized_email):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="El correo electrónico ya está registrado",
@@ -83,9 +91,9 @@ class AuthService:
                 detail=str(exc),
             ) from exc
 
-        # 3. INSERT 1: usuario (sin commit)
+        # 3. INSERT 1: usuario (sin commit). Email ya normalizado.
         new_user = Usuario(
-            email=payload.email,
+            email=normalized_email,
             password_hash=hash_password(payload.contrasena),
             telefono=payload.telefono,
             rol="cliente",
@@ -148,8 +156,12 @@ class AuthService:
         - Si el email no existe O la contraseña no coincide: 401.
         - Si el usuario existe pero está `activo=False`: 403.
         - Si todo OK: emite access + refresh token.
+
+        FIX BUG-002/020: el email se normaliza a minúsculas antes de la
+        búsqueda, así `juan@gmail.com` y `Juan@Gmail.com` son equivalentes.
         """
-        user = self.users.get_by_email(payload.email)
+        normalized_email = normalize_email(payload.email)
+        user = self.users.get_by_email(normalized_email)
         if user is None or not verify_password(payload.password, user.password_hash):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

@@ -98,7 +98,7 @@ class Boleto(Base):
         estado_boleto_enum, nullable=False, server_default="activo"
     )
     acepto_terminos_politicas: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default="true"
+        Boolean, nullable=False, server_default="false"
     )
     ip_registro: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
 

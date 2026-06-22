@@ -8,7 +8,7 @@ de servicio, turno) directamente en SQL. Calcula además en tiempo
 real la cantidad de asientos libres por viaje.
 """
 
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -24,6 +24,10 @@ router = APIRouter()
 
 TurnoLiteral = Literal["manana", "tarde", "noche"]
 TipoServicioLiteral = Literal["vip", "normal"]
+
+# FIX BUG-029: ventana máxima de búsqueda. 90 días hacia adelante
+# es la ventana operativa realista de las agencias de buses.
+MAX_SEARCH_DAYS = 90
 
 
 # ============================================================================
@@ -84,6 +88,30 @@ async def search_travels(
     - `tipo_servicio`: "vip" | "normal".
     - `turno`: "manana" | "tarde" | "noche".
     """
+    # FIX BUG-028: rechazar fechas pasadas. El frontend ya valida
+    # con `min` en el input, pero un request directo a la API
+    # podría saltarse esa restricción. Defensa en profundidad.
+    today = date.today()
+    if fecha_salida < today:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"La fecha de salida no puede ser anterior a hoy "
+                f"({today.isoformat()})."
+            ),
+        )
+    # FIX BUG-029: rechazar fechas muy lejanas para mantener
+    # consistencia con la ventana operativa real de las agencias.
+    max_date = today + timedelta(days=MAX_SEARCH_DAYS)
+    if fecha_salida > max_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"La fecha de salida no puede ser posterior a "
+                f"{max_date.isoformat()} ({MAX_SEARCH_DAYS} días desde hoy)."
+            ),
+        )
+
     if id_terminal_origen == id_terminal_destino:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

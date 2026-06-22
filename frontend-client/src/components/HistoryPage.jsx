@@ -11,21 +11,32 @@ import BottomNav from './BottomNav'
 import Navbar from './Navbar'
 
 function formatPrice(value) {
-  return `S/ ${value.toFixed(2)}`
+  if (value == null) return 'S/ 0.00'
+  return `S/ ${Number(value).toFixed(2)}`
 }
 
 function StatusBadge({ status }) {
-  if (status === 'pendiente') {
+  // FIX BUG-124: manejamos los nuevos status derivados
+  // ("Cancelado", "Viaje cancelado") además de los originales.
+  const s = String(status || '').toLowerCase()
+  if (s === 'pendiente') {
     return (
       <span className="bg-orange-50 text-orange-600 border border-orange-200 rounded-full px-4 py-1 text-sm font-medium">
         Pendiente
       </span>
     )
   }
+  if (s.includes('cancelado')) {
+    return (
+      <span className="bg-red-50 text-red-600 border border-red-200 rounded-full px-4 py-1 text-sm font-medium">
+        {status}
+      </span>
+    )
+  }
   return (
     <span className="bg-green-100 text-green-700 rounded-full px-4 py-1 text-sm font-medium">
-    Completado
-  </span>
+      Completado
+    </span>
   )
 }
 
@@ -97,12 +108,11 @@ function ReportIssueTooltip({ onReportIssue, trip, iconClassName = '' }) {
   )
 }
 
-function getEmbarqueFromSeat(seat) {
-  const lastChar = String(seat ?? '').slice(-1)
-  const num = Number(lastChar)
-  if (Number.isNaN(num) || num < 1) return 'Rampa 1'
-  return `Rampa ${num}`
-}
+// FIX BUG-126: la rampa de embarque viene del backend en
+// `viaje.rampa_embarque`. Se removió la función que la calculaba
+// del último dígito del asiento (era información FALSA).
+// `trip.rampaEmbarque` lo provee el normalizador de api/boletos.js
+// desde el response del endpoint /v1/boletos/historial.
 
 function GuidedRouteToggle({ trip, children }) {
   const [showMap, setShowMap] = useState(false)
@@ -134,7 +144,14 @@ function GuidedRouteToggle({ trip, children }) {
 }
 
 function HistoryCardMobile({ trip, onReportIssue }) {
-  const embarque = getEmbarqueFromSeat(trip.seat)
+  // FIX BUG-126: rampa viene del backend, no se calcula del asiento.
+  const embarque = trip.rampaEmbarque
+    ? `Rampa ${trip.rampaEmbarque}`
+    : 'Rampa por asignar'
+  // FIX BUG-154: pasamos el nombre de la ciudad como dirección de mapa
+  // (la dirección específica del terminal requeriría extender la API
+  // para incluir `terminal.direccion` en el response del historial).
+  const mapAddress = trip.origin
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState(null)
 
@@ -214,13 +231,13 @@ function HistoryCardMobile({ trip, onReportIssue }) {
         </p>
       )}
 
-      {trip.status === 'pendiente' && (
+      {String(trip.status || '').toLowerCase() === 'pendiente' && (
         <GuidedRouteToggle trip={trip}>
           <GuidedRouteHeader embarque={embarque} />
           <GuidedRouteMap
             embarque={embarque}
             origin={trip.origin}
-            destinationName={trip.origin}
+            destinationName={mapAddress}
           />
         </GuidedRouteToggle>
       )}
@@ -229,7 +246,11 @@ function HistoryCardMobile({ trip, onReportIssue }) {
 }
 
 function HistoryCardDesktop({ trip, onReportIssue }) {
-  const embarque = getEmbarqueFromSeat(trip.seat)
+  // FIX BUG-126: rampa viene del backend, no se calcula del asiento.
+  const embarque = trip.rampaEmbarque
+    ? `Rampa ${trip.rampaEmbarque}`
+    : 'Rampa por asignar'
+  const mapAddress = trip.origin
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState(null)
 
@@ -311,13 +332,13 @@ function HistoryCardDesktop({ trip, onReportIssue }) {
         </p>
       )}
 
-      {trip.status === 'pendiente' && (
+      {String(trip.status || '').toLowerCase() === 'pendiente' && (
         <GuidedRouteToggle trip={trip}>
           <GuidedRouteHeader embarque={embarque} />
           <GuidedRouteMap
             embarque={embarque}
             origin={trip.origin}
-            destinationName={trip.origin}
+            destinationName={mapAddress}
           />
         </GuidedRouteToggle>
       )}

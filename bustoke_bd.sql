@@ -1,22 +1,3 @@
-SELECT 
-    v.id_viaje,
-    v.fecha_hora_salida,
-    t_o.nombre AS origen,
-    t_d.nombre AS destino,
-    a.razon_social AS agencia,
-    b.placa,
-    (c.nombres || ' ' || c.apellido_paterno) AS chofer
-FROM viajes v
-JOIN rutas r ON v.id_ruta = r.id_ruta
-JOIN terminales t_o ON r.id_terminal_origen = t_o.id_terminal
-JOIN terminales t_d ON r.id_terminal_destino = t_d.id_terminal
-JOIN agencias a ON r.id_agencia = a.id_agencia
-JOIN buses b ON v.id_bus = b.id_bus
-LEFT JOIN choferes c ON v.id_chofer = c.id_chofer
-WHERE t_o.nombre ILIKE '%lima%'
-  AND t_d.nombre ILIKE '%arequipa%'
-  AND DATE(v.fecha_hora_salida) = '2026-06-23'
-ORDER BY v.fecha_hora_salida;
 -- =============================================================================
 -- 1. CONFIGURACIÓN INICIAL Y PROTECCIÓN
 -- =============================================================================
@@ -39,7 +20,7 @@ CREATE TYPE estado_pago AS ENUM ('pendiente', 'completado', 'fallido', 'reembols
 CREATE TYPE canal_venta AS ENUM ('app_bustoke', 'ventanilla_fisica');
 CREATE TYPE estado_reclamo AS ENUM ('abierto', 'en_proceso', 'resuelto');
 CREATE TYPE estado_ticket AS ENUM ('abierto', 'en_revision', 'resuelto');
-CREATE TYPE estado_bloqueo_temporal AS ENUM ('activo', 'expirado', 'convertido');
+CREATE TYPE estado_bloqueo_temporal AS ENUM ('activo', 'liberado', 'expirado', 'convertido');
 
 -- =============================================================================
 -- 3. DEFINICIÓN DE LA ESTRUCTURA (DDL - CONSÓLIDADO Y LIMPIO)
@@ -250,6 +231,17 @@ CREATE TABLE bloqueos_temporales (
     CONSTRAINT fk_bloqueos_asiento FOREIGN KEY (id_asiento) REFERENCES asientos(id_asiento) ON DELETE CASCADE
 );
 
+-- FIX BUG-041: índice único PARCIAL — sólo enforza cuando estado='activo'.
+-- Esto permite múltiples holds históricos (liberados/expirados/convertidos)
+-- del mismo par (viaje, asiento) pero garantiza que NUNCA haya 2 holds
+-- activos simultáneos (defensa a nivel BD contra race conditions).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bloqueo_activo_viaje_asiento
+    ON bloqueos_temporales (id_viaje, id_asiento)
+    WHERE estado = 'activo';
+
+-- FIX BUG-002/020: índice único case-insensitive sobre email
+CREATE UNIQUE INDEX IF NOT EXISTS uq_usuarios_email_lower ON usuarios (LOWER(email));
+
 CREATE TABLE pagos (
     id_pago SERIAL PRIMARY KEY,
     id_boleto INTEGER UNIQUE NOT NULL,
@@ -392,9 +384,10 @@ CREATE INDEX idx_comisiones_vigencia ON configuracion_comisiones(id_agencia, fec
 -- =============================================================================
 -- 5. ÍNDICES DE RESTRICCIÓN PARCIAL
 -- =============================================================================
-CREATE UNIQUE INDEX uq_bloqueo_activo_viaje 
-ON bloqueos_temporales(id_viaje, id_asiento) 
-WHERE estado = 'activo';
+-- FIX BUG-041: el índice único PARCIAL `uq_bloqueo_activo_viaje_asiento`
+-- ya se crea inline en la definición de `bloqueos_temporales`
+-- (línea ~238). Se elimina el duplicado legacy de esta sección para
+-- evitar conflicto de nombres.
 -- =============================================================================
 -- BLOQUE 1: UBICACIÓN, MAESTRAS Y PLANES SAAS (SEED DATA DEFINITIVO)
 -- =============================================================================
@@ -776,11 +769,11 @@ END $$;
 
 -- 1. Inserción de Cuentas de Usuario Base (Clientes y Operadores B2B)
 INSERT INTO usuarios (id_usuario, email, password_hash, telefono, rol, id_agencia, activo) VALUES 
-(1, 'admin.cruz@cruzdelsur.com.pe', '$2b$12$K7R...', '998765432', 'admin_agencia', 1, TRUE),
-(2, 'admin.oltursa@oltursa.com.pe', '$2b$12$L8S...', '991234567', 'admin_agencia', 2, TRUE),
-(3, 'admin.civa@civa.com.pe', '$2b$12$M9T...', '981112233', 'admin_agencia', 3, TRUE),
-(4, 'admin.movil@movilbus.com.pe', '$2b$12$N0U...', '974556677', 'admin_agencia', 4, TRUE),
-(5, 'sebastian.admin@bustoke.pe', '$2b$12$O1V...', '987654321', 'superadmin', NULL, TRUE);
+(1, 'admin.cruz@cruzdelsur.com.pe', '$2b$12$M5z5eOr07ydTPlLqY0LZY.CcF1fh1owzSfHKuP0.oknqIwV59zZbi', '998765432', 'admin_agencia', 1, TRUE),
+(2, 'admin.oltursa@oltursa.com.pe', '$2b$12$M5z5eOr07ydTPlLqY0LZY.CcF1fh1owzSfHKuP0.oknqIwV59zZbi', '991234567', 'admin_agencia', 2, TRUE),
+(3, 'admin.civa@civa.com.pe', '$2b$12$M5z5eOr07ydTPlLqY0LZY.CcF1fh1owzSfHKuP0.oknqIwV59zZbi', '981112223', 'admin_agencia', 3, TRUE),
+(4, 'admin.movil@movilbus.com.pe', '$2b$12$M5z5eOr07ydTPlLqY0LZY.CcF1fh1owzSfHKuP0.oknqIwV59zZbi', '974556677', 'admin_agencia', 4, TRUE),
+(5, 'sebastian.admin@bustoke.pe', '$2b$12$M5z5eOr07ydTPlLqY0LZY.CcF1fh1owzSfHKuP0.oknqIwV59zZbi', '987654321', 'superadmin', NULL, TRUE);
 
 -- Generación de 40 cuentas de clientes recurrentes para la simulación
 DO $$
@@ -790,7 +783,7 @@ BEGIN
         VALUES (
             i, 
             'cliente.user' || i || '@gmail.com', 
-            '$2b$12$P2W_mock_hash_secret', 
+            '$2b$12$M5z5eOr07ydTPlLqY0LZY.CcF1fh1owzSfHKuP0.oknqIwV59zZbi',
             '9' || CAST(FLOOR(RANDOM() * 90000000 + 10000000) AS INT), 
             'cliente', 
             NULL, 
@@ -1088,6 +1081,6 @@ BEGIN
 END;
 $$;
 
-CALL sp_limpiar_bloqueos_expirados();
-SELECT *
-FROM boletos;
+-- FIX XBUG-026: el script original cerraba con un CALL y un SELECT artefacto.
+-- Se omiten intencionalmente; `sp_limpiar_bloqueos_expirados` debe
+-- ejecutarse como cron o job programado (no inline en el DDL de seed).

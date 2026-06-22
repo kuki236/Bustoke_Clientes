@@ -2,11 +2,39 @@ import Autocomplete from './Autocomplete'
 import PassengerStepper from './PassengerStepper'
 import SearchField from './SearchField'
 
+// FIX BUG-028: helper para obtener la fecha de hoy en formato
+// `YYYY-MM-DD` (el que requiere el input type="date" como min/max).
+// Se calcula en el render (no en useState) para que siempre use
+// la fecha actual del dispositivo del usuario, no la del mount inicial.
+function todayIso() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+// FIX BUG-029: limitamos la fecha máxima de búsqueda a 90 días
+// hacia adelante para evitar fechas absurdas (2030, etc.) y mantener
+// consistencia con la ventana operativa real de las agencias.
+const MAX_SEARCH_DAYS = 90
+function maxDateIso() {
+  const d = new Date()
+  d.setDate(d.getDate() + MAX_SEARCH_DAYS)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export default function SearchBar({ values, onChange, onSearch, isSearching = false }) {
   const handleSubmit = (event) => {
     event.preventDefault()
     onSearch?.()
   }
+
+  const minDate = todayIso()
+  const maxDate = maxDateIso()
 
   return (
     <form
@@ -34,7 +62,18 @@ export default function SearchBar({ values, onChange, onSearch, isSearching = fa
         type="date"
         value={values.date}
         placeholder="DD/MM/AAAA"
-        onChange={(v) => onChange('date', v)}
+        min={minDate}
+        max={maxDate}
+        onChange={(v) => {
+          // FIX BUG-028: clamp defensivo en frontend. Aunque el
+          // navegador respeta `min`/`max`, en algunos navegadores
+          // móviles el picker permite tipear la fecha manualmente
+          // y saltar la restricción. Si llega una fecha fuera de
+          // rango, la corregimos al límite correspondiente.
+          if (v && v < minDate) v = minDate
+          if (v && v > maxDate) v = maxDate
+          onChange('date', v)
+        }}
       />
       <div className="hidden lg:block w-px h-10 bg-neutral-200" />
       <PassengerStepper
