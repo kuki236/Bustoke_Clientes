@@ -219,9 +219,6 @@ class SeatRepository:
         (caso guest), el hold queda con `id_usuario=NULL` y el release
         filtra solo por `token_sesion` (que sigue siendo único por
         sesión de navegador).
-<<<<<<< Updated upstream
-        """
-=======
 
         FIX bug "UNIQUE constraint falla por holds expirados":
         primero marca los holds expirados del mismo par como
@@ -230,7 +227,6 @@ class SeatRepository:
         # Liberar el UNIQUE constraint liberando holds expirados
         self.expire_stale_holds(id_viaje, id_asiento)
 
->>>>>>> Stashed changes
         now = datetime.now(timezone.utc)
         expira_at = now + __import__("datetime").timedelta(seconds=segundos_ttl)
 

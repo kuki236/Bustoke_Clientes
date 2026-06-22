@@ -678,7 +678,6 @@ function BuyerBlock({
         value={buyer.email}
         onChange={(v) => update('email', v)}
         placeholder="correo@ejemplo.com"
-<<<<<<< Updated upstream
         // FIX bug "no puedo editar el email cuando el comprador es
         // Pasajero 1": el email NO es un dato personal del comprador
         // (que ya viene de Pax 1) sino el `email_contacto` del
@@ -686,8 +685,6 @@ function BuyerBlock({
         // cuando el usuario está autenticado (cuyo email viene del
         // perfil y no debería cambiar para ESTA compra), pero sigue
         // siendo editable cuando es guest.
-=======
->>>>>>> Stashed changes
         disabled={lockFromAuth}
       />
     </section>
@@ -1082,10 +1079,6 @@ export default function CheckoutPage({
   )
   const [buyerIsPax1, setBuyerIsPax1] = useState(false)
   const [useProfileForPax1, setUseProfileForPax1] = useState(false)
-<<<<<<< Updated upstream
-  // create-account checkbox removido (BUG-083, ver audit)
-=======
->>>>>>> Stashed changes
   const [timeLeft, setTimeLeft] = useState(
     selectedSeats.length > 0 ? RESERVATION_SECONDS : null,
   )
@@ -1337,10 +1330,6 @@ export default function CheckoutPage({
       setBuyer(getEmptyBuyer())
       setAcceptedTerms(false)
       setUseProfileForPax1(false)
-<<<<<<< Updated upstream
-
-=======
->>>>>>> Stashed changes
       onPaymentSuccess?.({ passengers, buyer, paymentMethod })
 
       navigate('/checkout/success', {

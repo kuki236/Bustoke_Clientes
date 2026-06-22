@@ -50,19 +50,6 @@ class SeatService:
         - El asiento ya está ocupado por un boleto activo.
         - El asiento ya tiene un bloqueo vigente (de otro origen).
 
-<<<<<<< Updated upstream
-        FIX BUG-041/XBUG-011: la operación de creación está envuelta en
-        un SAVEPOINT (sub-transaction) que atrapa `IntegrityError`. La BD
-        tiene un índice único PARCIAL `uq_bloqueo_activo_viaje_asiento`
-        (estado='activo') que actúa como red de seguridad final contra
-        race conditions entre 2+ requests concurrentes intentando hold-ear
-        el mismo asiento. Si la UNIQUE salta, devolvemos 409 ordenado.
-
-        FIX bug "deselect deja hold zombie": el frontend envía ahora
-        `id_usuario` al crear el hold, así el release posterior (que
-        filtra por `id_usuario` cuando está presente) puede encontrarlo
-        correctamente aunque cambie el estado de login.
-=======
         FIX BUG-041/XBUG-011: el INSERT está envuelto en un SAVEPOINT
         que captura `IntegrityError` (UNIQUE constraint sobre
         bloqueos activos). Si dos requests compiten por el mismo
@@ -75,7 +62,11 @@ class SeatService:
         el savepoint). El `with self.db.begin_nested():` ya hizo
         el rollback del savepoint automáticamente. Solo necesitamos
         traducir la excepción a un ValueError con mensaje claro.
->>>>>>> Stashed changes
+
+        FIX bug "deselect deja hold zombie": el frontend envía ahora
+        `id_usuario` al crear el hold, así el release posterior (que
+        filtra por `id_usuario` cuando está presente) puede encontrarlo
+        correctamente aunque cambie el estado de login.
         """
         from sqlalchemy.exc import IntegrityError
 
@@ -106,19 +97,6 @@ class SeatService:
 
         existing = self.seats.get_active_hold(id_viaje, id_asiento)
         if existing is not None:
-<<<<<<< Updated upstream
-            # Si el bloqueo existente es del mismo token, lo renovamos.
-            # Para que la "renovación" funcione cuando el usuario está
-            # logueado, comparamos también por `id_usuario` (si está
-            # presente en ambos lados). Si el hold original no tenía
-            # id_usuario pero el nuevo sí, los tratamos como "distintos"
-            # para no pisar el hold de otra sesión.
-            same_session = token_sesion and existing.token_sesion == token_sesion
-            if same_session and (
-                (existing.id_usuario is None and id_usuario is None)
-                or (existing.id_usuario == id_usuario)
-            ):
-=======
             # FIX bug "deselect zombie": para renovar correctamente
             # cuando el usuario está logueado, comparamos también
             # por `id_usuario`. Si el hold original no tenía
@@ -132,7 +110,6 @@ class SeatService:
                 or (existing.id_usuario == id_usuario)
             )
             if same_session and same_user:
->>>>>>> Stashed changes
                 ttl = segundos_ttl or settings.SEAT_HOLD_TTL_SECONDS
                 from datetime import datetime, timedelta, timezone
 
@@ -144,15 +121,6 @@ class SeatService:
         ttl = segundos_ttl or settings.SEAT_HOLD_TTL_SECONDS
         token = token_sesion or self._generate_token()
 
-<<<<<<< Updated upstream
-        # FIX BUG-041: SAVEPOINT para aislar el INSERT del resto de la
-        # transacción. Si el índice único PARCIAL salta (otro request
-        # ganó la carrera), hacemos rollback del savepoint (no de toda
-        # la transacción) y devolvemos 409. Sin esto, dos requests
-        # concurrentes podrían crear dos `bloqueos_temporales` activos
-        # para el mismo (viaje, asiento) -> overbooking.
-=======
->>>>>>> Stashed changes
         try:
             with self.db.begin_nested():
                 hold = self.seats.create_hold(
@@ -163,10 +131,6 @@ class SeatService:
                     id_usuario=id_usuario,
                 )
         except IntegrityError:
-<<<<<<< Updated upstream
-            self.db.rollback()
-=======
->>>>>>> Stashed changes
             raise ValueError("El asiento ya está bloqueado por otro usuario")
 
         return self._hold_to_dict(hold, estado="activo")
