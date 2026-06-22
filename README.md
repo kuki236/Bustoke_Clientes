@@ -7,9 +7,12 @@ Monorepo del proyecto **BUSTOKE**, una plataforma que conecta a pasajeros (B2C) 
 ```
 Bustoke_Clientes/
 ├── backend/                # API REST en FastAPI (Python 3.11+)
+│   └── scripts/            # Utilidades CLI (test_smtp.py, bustoke_bd.sql espejo)
 ├── frontend-client/        # Web pública del pasajero (React + Vite + Tailwind)
-└── bustoke_bd.sql          # Dump de la base de datos PostgreSQL
+└── bustoke_bd.sql          # Dump canónico de la base de datos PostgreSQL
 ```
+
+> Los archivos `bustoke_bd.sql` aparecen en la raíz, en `backend/` y en `backend/scripts/` como espejos sincronizados del esquema. El comando documentado más abajo (`psql -f bustoke_bd.sql`) usa siempre la copia de la raíz.
 
 | Carpeta | Stack | Descripción |
 | --- | --- | --- |
@@ -42,11 +45,12 @@ Bustoke_Clientes/
 | Módulo | Endpoints | Estado | Requerimiento |
 | --- | --- | --- | --- |
 | **Auth** | `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh`, `GET /auth/me` | Implementado | RF-01, RF-02 |
-| **Travels** | `GET /travels/search`, `GET /travels/{id}`, `GET /travels/{id}/seats`, `GET /travels/{id}/manifiesto` | Implementado / Stub | RF-03, RF-04, RF-05, RF-11, RF-17 |
-| **Seats** | `POST /seats/hold`, `POST /seats/release`, `POST /seats/checkout` | Implementado / Stub | RF-05, RF-07, RF-08 |
+| **Travels** | `GET /travels/search`, `GET /travels/{id}`, `GET /travels/{id}/seats`, `GET /travels/{id}/manifiesto` | Implementado (manifiesto es stub) | RF-03, RF-04, RF-05, RF-11, RF-17 |
+| **Seats** | `POST /seats/hold`, `POST /seats/release`, `POST /seats/release-sync`, `POST /seats/checkout` | Implementado (checkout es stub) | RF-05, RF-07, RF-08 |
 | **Bookings** | `POST /bookings/process` | Implementado (transacción atómica) | RF-07 |
+| **Boletos** | `GET /boletos/validar/{codigo_qr}`, `GET /boletos/historial` | Implementado | RF-07, RF-11, RF-21 |
+| **Claims** | `POST /claims/`, `GET /claims/me`, `GET /claims/{id}`, `POST /claims/{id}/messages`, `POST /claims/{id}/respond` | Implementado (con email + validación admin) | RF-09, RF-10, RF-19 |
 | **Agencies (B2B)** | `/agencies/me`, `/agencies/buses`, `/agencies/routes`, `/agencies/api-keys`, `/agencies/reports`, `/agencies/inventory`, `/agencies/inventory/lock` | Stubs | RF-12 a RF-21, RF-25 |
-| **Claims** | `/claims/`, `/claims/me`, `/claims/{id}`, `/claims/{id}/messages`, `/claims/{id}/respond` | Stubs | RF-09, RF-10, RF-19 |
 | **Billing** | `/billing/commissions`, `/billing/subscriptions`, `/billing/settlements` | Stubs | RF-22 a RF-25 |
 
 Características clave del backend ya operativas:
@@ -82,7 +86,7 @@ Características del frontend:
 - **Rehidratación automática de sesión** al montar `AuthProvider` si hay token en `localStorage`.
 - **Normalización de datos** entre backend (snake_case) y frontend (camelCase) en `api/auth.js` y `api/travels.js`.
 - **Diseño responsive** mobile-first con TailwindCSS 4 y tokens de tema (`theme-tokens.json`).
-- **Datos mock** en `src/data/` (terminales, agencias, trips, tipos de documento, historial) para desarrollo sin backend.
+- **Datos de catálogo** en `src/data/` (terminales, agencias, tipos de documento) para uso offline de la UI. El resto (viajes, asientos, historial) se consume en vivo desde la API.
 
 ## Configuración del entorno
 
@@ -185,10 +189,15 @@ GET    /v1/travels/{id_viaje}/manifiesto  # Manifiesto SUTRAN (stub)
 # Seats
 POST   /v1/seats/hold                 # Bloqueo temporal de asiento
 POST   /v1/seats/release              # Liberar bloqueo
+POST   /v1/seats/release-sync         # Liberar múltiples holds (sendBeacon / beforeunload)
 POST   /v1/seats/checkout             # Stub de checkout
 
 # Bookings
 POST   /v1/bookings/process           # Procesar compra completa (transacción atómica)
+
+# Boletos
+GET    /v1/boletos/validar/{codigo_qr}  # Validar QR en counter (marca como usado)
+GET    /v1/boletos/historial            # Historial del usuario autenticado
 
 # Agencies (B2B) — todos stub
 GET    /v1/agencies/me
@@ -200,7 +209,7 @@ GET    /v1/agencies/reports
 GET    /v1/agencies/inventory
 POST   /v1/agencies/inventory/lock
 
-# Claims — todos stub
+# Claims — implementados (con email + validación admin)
 POST   /v1/claims/
 GET    /v1/claims/me
 GET    /v1/claims/{id_reclamo}
@@ -233,8 +242,9 @@ Los tests viven en `backend/tests/`.
 
 ## Próximos pasos
 
-- Implementar los endpoints stub de **Agencies (B2B)**, **Claims** y **Billing**.
+- Implementar los endpoints stub de **Agencies (B2B)** y **Billing**.
 - Integrar pasarela de pagos real (Izipay / Culqi / Niubiz) en el flujo de checkout.
-- Emisión de **boletos PDF** y reporte SUTRAN automático.
+- Emisión de **boletos PDF** automática al confirmar la compra.
+- Reporte SUTRAN automático desde `/v1/travels/{id}/manifiesto`.
 - Panel de administración B2B (frontend-agency).
-- Notificaciones (email + push) para confirmaciones y cambios de estado del viaje.
+- Notificaciones push para confirmaciones y cambios de estado del viaje.

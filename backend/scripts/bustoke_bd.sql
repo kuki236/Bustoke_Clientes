@@ -20,7 +20,7 @@ CREATE TYPE estado_pago AS ENUM ('pendiente', 'completado', 'fallido', 'reembols
 CREATE TYPE canal_venta AS ENUM ('app_bustoke', 'ventanilla_fisica');
 CREATE TYPE estado_reclamo AS ENUM ('abierto', 'en_proceso', 'resuelto');
 CREATE TYPE estado_ticket AS ENUM ('abierto', 'en_revision', 'resuelto');
-CREATE TYPE estado_bloqueo_temporal AS ENUM ('activo', 'expirado', 'convertido');
+CREATE TYPE estado_bloqueo_temporal AS ENUM ('activo', 'liberado', 'expirado', 'convertido');
 
 -- =============================================================================
 -- 3. DEFINICIÓN DE LA ESTRUCTURA (DDL - CONSÓLIDADO Y LIMPIO)
@@ -136,16 +136,33 @@ CREATE TABLE tarifas_ruta (
     CONSTRAINT uq_ruta_servicio UNIQUE (id_ruta, tipo_servicio)
 );
 
+-- Tabla de Choferes (Exclusivo para Manifiesto SUTRAN - Sin acceso al sistema)
+CREATE TABLE choferes (
+    id_chofer SERIAL PRIMARY KEY,
+    id_agencia INTEGER NOT NULL,
+    id_tipo_documento INTEGER NOT NULL,
+    numero_documento VARCHAR(20) UNIQUE NOT NULL,
+    nombres VARCHAR(100) NOT NULL,
+    apellido_paterno VARCHAR(100) NOT NULL,
+    apellido_materno VARCHAR(100) NOT NULL,
+    activo BOOLEAN NOT NULL DEFAULT TRUE,
+    fecha_registro TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT fk_choferes_agencia FOREIGN KEY (id_agencia) REFERENCES agencias(id_agencia) ON DELETE RESTRICT,
+    CONSTRAINT fk_choferes_doc FOREIGN KEY (id_tipo_documento) REFERENCES tipos_documento(id_tipo_documento) ON DELETE RESTRICT
+);
+
 CREATE TABLE viajes (
     id_viaje SERIAL PRIMARY KEY,
     id_ruta INTEGER NOT NULL,
     id_bus INTEGER NOT NULL,
+    id_chofer INTEGER NULL,
     fecha_hora_salida TIMESTAMP NOT NULL,
     fecha_hora_llegada TIMESTAMP NOT NULL, 
     estado estado_viaje NOT NULL DEFAULT 'programado',
     rampa_embarque VARCHAR(50) NOT NULL DEFAULT 'Por asignar',
     CONSTRAINT fk_viajes_ruta FOREIGN KEY (id_ruta) REFERENCES rutas(id_ruta) ON DELETE RESTRICT,
     CONSTRAINT fk_viajes_bus FOREIGN KEY (id_bus) REFERENCES buses(id_bus) ON DELETE RESTRICT,
+    CONSTRAINT fk_viajes_chofer FOREIGN KEY (id_chofer) REFERENCES choferes(id_chofer) ON DELETE RESTRICT,
     CONSTRAINT chk_horarios CHECK (fecha_hora_llegada > fecha_hora_salida)
 );
 
@@ -171,7 +188,7 @@ CREATE TABLE pasajeros (
     nombres VARCHAR(100) NOT NULL,
     apellido_paterno VARCHAR(100) NOT NULL,
     apellido_materno VARCHAR(100) NOT NULL,
-    fecha_nacimiento DATE NOT NULL,
+    fecha_nacimiento DATE,
     CONSTRAINT fk_pasajeros_usuario FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE SET NULL,
     CONSTRAINT fk_pasajeros_doc FOREIGN KEY (id_tipo_documento) REFERENCES tipos_documento(id_tipo_documento) ON DELETE RESTRICT
 );
@@ -213,6 +230,17 @@ CREATE TABLE bloqueos_temporales (
     CONSTRAINT fk_bloqueos_viaje FOREIGN KEY (id_viaje) REFERENCES viajes(id_viaje) ON DELETE CASCADE,
     CONSTRAINT fk_bloqueos_asiento FOREIGN KEY (id_asiento) REFERENCES asientos(id_asiento) ON DELETE CASCADE
 );
+
+-- FIX BUG-041: índice único PARCIAL — sólo enforza cuando estado='activo'.
+-- Esto permite múltiples holds históricos (liberados/expirados/convertidos)
+-- del mismo par (viaje, asiento) pero garantiza que NUNCA haya 2 holds
+-- activos simultáneos (defensa a nivel BD contra race conditions).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_bloqueo_activo_viaje_asiento
+    ON bloqueos_temporales (id_viaje, id_asiento)
+    WHERE estado = 'activo';
+
+-- FIX BUG-002/020: índice único case-insensitive sobre email
+CREATE UNIQUE INDEX IF NOT EXISTS uq_usuarios_email_lower ON usuarios (LOWER(email));
 
 CREATE TABLE pagos (
     id_pago SERIAL PRIMARY KEY,
@@ -356,9 +384,10 @@ CREATE INDEX idx_comisiones_vigencia ON configuracion_comisiones(id_agencia, fec
 -- =============================================================================
 -- 5. ÍNDICES DE RESTRICCIÓN PARCIAL
 -- =============================================================================
-CREATE UNIQUE INDEX uq_bloqueo_activo_viaje 
-ON bloqueos_temporales(id_viaje, id_asiento) 
-WHERE estado = 'activo';
+-- FIX BUG-041: el índice único PARCIAL `uq_bloqueo_activo_viaje_asiento`
+-- ya se crea inline en la definición de `bloqueos_temporales`
+-- (línea ~238). Se elimina el duplicado legacy de esta sección para
+-- evitar conflicto de nombres.
 -- =============================================================================
 -- BLOQUE 1: UBICACIÓN, MAESTRAS Y PLANES SAAS (SEED DATA DEFINITIVO)
 -- =============================================================================
@@ -629,66 +658,99 @@ INSERT INTO tarifas_ruta (id_ruta, tipo_servicio, precio) VALUES
 (13, 'normal', 55.00), (13, 'vip', 85.00);
 
 
--- 3. Generación Masiva y Automatizada de Viajes (Mañana, Tarde, Noche en los próximos 5 días)
+-- 2.5. Registro Masivo de Choferes por Agencia (10 por agencia = 40 totales para Manifiesto SUTRAN)
+DO $$
+DECLARE
+    v_id_agencia INT;
+    v_nombres TEXT[] := ARRAY['Roberto', 'Miguel', 'Jorge', 'Luis', 'Pedro', 'Carlos', 'José', 'Andrés', 'Ricardo', 'Fernando'];
+    v_paternos TEXT[] := ARRAY['Mendoza', 'Torres', 'Quispe', 'Ramos', 'Reyes', 'Pérez', 'Castro', 'Chávez', 'Luna', 'Vargas'];
+    v_maternos TEXT[] := ARRAY['Salazar', 'Huamán', 'Ramírez', 'Flores', 'Sánchez', 'Díaz', 'Espinoza', 'Rojas', 'Benitez', 'Campos'];
+    v_chofer_counter INT := 1;
+    v_dni TEXT;
+BEGIN
+    FOR v_id_agencia IN 1..4 LOOP
+        FOR i IN 1..10 LOOP
+            v_dni := LPAD((40000000 + v_id_agencia * 1000 + i)::TEXT, 8, '0');
+            INSERT INTO choferes (id_chofer, id_agencia, id_tipo_documento, numero_documento, nombres, apellido_paterno, apellido_materno)
+            VALUES (
+                v_chofer_counter,
+                v_id_agencia,
+                1, -- DNI
+                v_dni,
+                v_nombres[i],
+                v_paternos[i],
+                v_maternos[i]
+            );
+            v_chofer_counter := v_chofer_counter + 1;
+        END LOOP;
+    END LOOP;
+END $$;
+
+
+-- 3. Generación Masiva de Viajes Programados (22 Junio - 12 Julio 2026) con Asignación de Choferes
+--    4-5 salidas por destino por día
 DO $$
 DECLARE
     v_id_ruta INT;
     v_id_agencia INT;
     v_id_bus INT;
-    v_fecha_base TIMESTAMP := '2026-06-08 00:00:00'; -- Simula salidas estables programadas a futuro
+    v_id_chofer INT;
+    v_fecha_base TIMESTAMP := '2026-06-22 00:00:00';
+    v_dias_totales INT := 21;  -- 22 jun a 12 jul
     v_salida TIMESTAMP;
     v_llegada TIMESTAMP;
     v_duracion_horas INT;
     v_rampa VARCHAR(50);
     v_viaje_counter INT := 1;
+    v_turnos_dia INT;
+    v_horarios TIME[] := ARRAY['07:00:00'::TIME, '11:00:00'::TIME, '15:30:00'::TIME, '20:00:00'::TIME, '22:30:00'::TIME];
+    v_horario TIME;
+    v_num_choferes INT;
 BEGIN
-    -- Iteramos por cada una de las rutas comerciales configuradas
     FOR v_id_ruta IN SELECT id_ruta FROM rutas LOOP
-        
-        -- Extraemos la agencia dueña de la ruta para asignarle un bus de su propia flota
         SELECT id_agencia INTO v_id_agencia FROM rutas WHERE id_ruta = v_id_ruta;
-        
-        -- Definimos la duración estimada del viaje según la distancia típica del tramo peruano
-        IF v_id_ruta IN (1, 2, 5, 6) THEN v_duracion_horas := 8;     -- Lima <-> Trujillo
-        ELSIF v_id_ruta IN (3, 4, 7) THEN v_duracion_horas := 16;   -- Lima <-> Arequipa
-        ELSIF v_id_ruta IN (8, 9) THEN v_duracion_horas := 12;      -- Lima <-> Chiclayo
-        ELSIF v_id_ruta IN (10, 11) THEN v_duracion_horas := 20;    -- Lima <-> Cusco
-        ELSE v_duracion_horas := 7;                                 -- Lima <-> Huancayo
+
+        SELECT COUNT(*) INTO v_num_choferes FROM choferes WHERE id_agencia = v_id_agencia AND activo = TRUE;
+        IF v_num_choferes = 0 THEN v_num_choferes := 1; END IF;
+
+        IF v_id_ruta IN (1, 2, 5, 6) THEN v_duracion_horas := 8;
+        ELSIF v_id_ruta IN (3, 4, 7) THEN v_duracion_horas := 16;
+        ELSIF v_id_ruta IN (8, 9) THEN v_duracion_horas := 12;
+        ELSIF v_id_ruta IN (10, 11) THEN v_duracion_horas := 20;
+        ELSE v_duracion_horas := 7;
         END IF;
 
-        -- Programamos itinerarios diarios para los próximos 5 días consecutivos (Abundancia de opciones)
-        FOR v_dia IN 0..4 LOOP
-            
-            -- Iteramos 3 turnos por día (Mañana, Tarde y Noche) para garantizar variedad horaria en la UI
-            FOR v_turno IN 1..3 LOOP
-                
-                -- Ajustamos la hora exacta de salida dependiendo del turno del día
-                IF v_turno = 1 THEN 
-                    v_salida := v_fecha_base + (v_dia || ' days')::INTERVAL + '08:00:00'::INTERVAL; -- Turno Mañana (08:00 AM)
-                    v_rampa := 'Andén Norte - Rampa ' || ((v_id_ruta % 4) + 1);
-                ELSIF v_turno = 2 THEN 
-                    v_salida := v_fecha_base + (v_dia || ' days')::INTERVAL + '14:30:00'::INTERVAL; -- Turno Tarde (02:30 PM)
-                    v_rampa := 'Andén Central - Rampa ' || ((v_id_ruta % 3) + 5);
-                ELSE 
-                    v_salida := v_fecha_base + (v_dia || ' days')::INTERVAL + '21:45:00'::INTERVAL; -- Turno Noche (09:45 PM)
-                    v_rampa := 'Zona de Embarque - Rampa ' || ((v_id_ruta % 5) + 10);
-                END IF;
+        FOR v_dia IN 0..(v_dias_totales - 1) LOOP
+            -- Alterna 5 turnos (días pares) y 4 turnos (días impares) por destino
+            v_turnos_dia := CASE WHEN v_dia % 2 = 0 THEN 5 ELSE 4 END;
 
-                -- Calculamos la hora estimada de llegada sumando las horas de tramo a la salida (Mejora 2)
+            FOR v_turno IN 1..v_turnos_dia LOOP
+                v_horario := v_horarios[v_turno];
+                v_salida := v_fecha_base + (v_dia || ' days')::INTERVAL + v_horario;
                 v_llegada := v_salida + (v_duracion_horas || ' hours')::INTERVAL;
 
-                -- Seleccionamos un bus de la agencia de forma cíclica para que la flota rote y tenga uso equitativo
-                SELECT id_bus INTO v_id_bus 
-                FROM buses 
+                v_rampa := 'Andén ' || ((v_turno % 4) + 1) || ' - Rampa ' || ((v_id_ruta + v_turno + v_dia) % 15 + 1);
+
+                -- Bus round-robin dentro de la flota de la agencia
+                SELECT id_bus INTO v_id_bus
+                FROM buses
                 WHERE id_agencia = v_id_agencia
+                ORDER BY id_bus
                 OFFSET ((v_dia + v_turno) % 10) LIMIT 1;
 
-                -- Inserción del registro de salida en el itinerario maestro de Bustoke
-                INSERT INTO viajes (id_viaje, id_ruta, id_bus, fecha_hora_salida, fecha_hora_llegada, estado, rampa_embarque)
+                -- Chofer round-robin de la misma agencia
+                SELECT id_chofer INTO v_id_chofer
+                FROM choferes
+                WHERE id_agencia = v_id_agencia AND activo = TRUE
+                ORDER BY id_chofer
+                OFFSET ((v_dia + v_turno) % v_num_choferes) LIMIT 1;
+
+                INSERT INTO viajes (id_viaje, id_ruta, id_bus, id_chofer, fecha_hora_salida, fecha_hora_llegada, estado, rampa_embarque)
                 VALUES (
                     v_viaje_counter,
                     v_id_ruta,
                     v_id_bus,
+                    v_id_chofer,
                     v_salida,
                     v_llegada,
                     'programado',
@@ -707,11 +769,11 @@ END $$;
 
 -- 1. Inserción de Cuentas de Usuario Base (Clientes y Operadores B2B)
 INSERT INTO usuarios (id_usuario, email, password_hash, telefono, rol, id_agencia, activo) VALUES 
-(1, 'admin.cruz@cruzdelsur.com.pe', '$2b$12$K7R...', '998765432', 'admin_agencia', 1, TRUE),
-(2, 'admin.oltursa@oltursa.com.pe', '$2b$12$L8S...', '991234567', 'admin_agencia', 2, TRUE),
-(3, 'admin.civa@civa.com.pe', '$2b$12$M9T...', '981112233', 'admin_agencia', 3, TRUE),
-(4, 'admin.movil@movilbus.com.pe', '$2b$12$N0U...', '974556677', 'admin_agencia', 4, TRUE),
-(5, 'sebastian.admin@bustoke.pe', '$2b$12$O1V...', '987654321', 'superadmin', NULL, TRUE);
+(1, 'admin.cruz@cruzdelsur.com.pe', '$2b$12$M5z5eOr07ydTPlLqY0LZY.CcF1fh1owzSfHKuP0.oknqIwV59zZbi', '998765432', 'admin_agencia', 1, TRUE),
+(2, 'admin.oltursa@oltursa.com.pe', '$2b$12$M5z5eOr07ydTPlLqY0LZY.CcF1fh1owzSfHKuP0.oknqIwV59zZbi', '991234567', 'admin_agencia', 2, TRUE),
+(3, 'admin.civa@civa.com.pe', '$2b$12$M5z5eOr07ydTPlLqY0LZY.CcF1fh1owzSfHKuP0.oknqIwV59zZbi', '981112223', 'admin_agencia', 3, TRUE),
+(4, 'admin.movil@movilbus.com.pe', '$2b$12$M5z5eOr07ydTPlLqY0LZY.CcF1fh1owzSfHKuP0.oknqIwV59zZbi', '974556677', 'admin_agencia', 4, TRUE),
+(5, 'sebastian.admin@bustoke.pe', '$2b$12$M5z5eOr07ydTPlLqY0LZY.CcF1fh1owzSfHKuP0.oknqIwV59zZbi', '987654321', 'superadmin', NULL, TRUE);
 
 -- Generación de 40 cuentas de clientes recurrentes para la simulación
 DO $$
@@ -721,7 +783,7 @@ BEGIN
         VALUES (
             i, 
             'cliente.user' || i || '@gmail.com', 
-            '$2b$12$P2W_mock_hash_secret', 
+            '$2b$12$M5z5eOr07ydTPlLqY0LZY.CcF1fh1owzSfHKuP0.oknqIwV59zZbi',
             '9' || CAST(FLOOR(RANDOM() * 90000000 + 10000000) AS INT), 
             'cliente', 
             NULL, 
@@ -900,6 +962,7 @@ SELECT setval('asientos_id_asiento_seq', COALESCE((SELECT MAX(id_asiento)+1 FROM
 SELECT setval('rutas_id_ruta_seq', COALESCE((SELECT MAX(id_ruta)+1 FROM rutas), 1), false);
 SELECT setval('tarifas_ruta_id_tarifa_seq', COALESCE((SELECT MAX(id_tarifa)+1 FROM tarifas_ruta), 1), false);
 SELECT setval('viajes_id_viaje_seq', COALESCE((SELECT MAX(id_viaje)+1 FROM viajes), 1), false);
+SELECT setval('choferes_id_chofer_seq', COALESCE((SELECT MAX(id_chofer)+1 FROM choferes), 1), false);
 SELECT setval('usuarios_id_usuario_seq', COALESCE((SELECT MAX(id_usuario)+1 FROM usuarios), 1), false);
 SELECT setval('pasajeros_id_pasajero_seq', COALESCE((SELECT MAX(id_pasajero)+1 FROM pasajeros), 1), false);
 SELECT setval('boletos_id_boleto_seq', COALESCE((SELECT MAX(id_boleto)+1 FROM boletos), 1), false);
@@ -1015,7 +1078,9 @@ BEGIN
     SET estado = 'expirado'
     WHERE estado = 'activo'
       AND NOW() >= expira_at;
-      
-    COMMIT;
 END;
 $$;
+
+-- FIX XBUG-026: el script original cerraba con un CALL y un SELECT artefacto.
+-- Se omiten intencionalmente; `sp_limpiar_bloqueos_expirados` debe
+-- ejecutarse como cron o job programado (no inline en el DDL de seed).

@@ -3,7 +3,7 @@ const destinations = [
     id_terminal: 4,
     name: 'Trujillo',
     description: 'La Ciudad de la Eterna Primavera y las huacas de Chan Chan.',
-    img: 'https://upload.wikimedia.org/wikipedia/commons/e/ed/Freedom_Monument%2C_Trujillo.jpg',
+    img: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR1V_Ler-NBjM3_RutKVXEg1OvfzV_CB2sEnqLkHpmGbXZ-9xRiq5zL3Hqo&s=10',
   },
   {
     id_terminal: 5,
@@ -30,7 +30,7 @@ export default function DestinationCarousel({ onSelect }) {
           key={d.id_terminal}
           type="button"
           onClick={() => onSelect?.(d)}
-          className="relative shrink-0 snap-start overflow-hidden rounded-2xl shadow-card h-48 w-[78%] text-left cursor-pointer hover:scale-[1.02] active:scale-[0.99] transition-transform"
+          className="relative shrink-0 snap-start overflow-hidden rounded-2xl shadow-card h-48 w-[70%] text-left cursor-pointer hover:scale-[1.02] active:scale-[0.99] transition-transform"
         >
           <img
             src={d.img}
