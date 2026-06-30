@@ -32,11 +32,16 @@ class Settings(BaseSettings):
     APP_PORT: int = 8000
 
     # ---------- Base de Datos ----------
+    # Si `DATABASE_URL` está definida (Neon, Render, Railway, Supabase, etc.),
+    # tiene prioridad sobre los campos individuales DB_HOST/DB_NAME/...
+    # Se espera en formato SQLAlchemy: postgresql+psycopg2://user:pass@host:port/db
+    DATABASE_URL: str | None = None
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
     DB_NAME: str = "bustoke_db"
     DB_USER: str = "postgres"
     DB_PASSWORD: str = "postgres"
+    DB_SSLMODE: str | None = None
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
     DB_POOL_TIMEOUT: int = 30
@@ -92,7 +97,21 @@ class Settings(BaseSettings):
 
     @property
     def database_url(self) -> str:
-        """Compone la URL de conexión para SQLAlchemy (driver psycopg2)."""
+        """
+        Compone la URL de conexión para SQLAlchemy (driver psycopg2).
+
+        Si `DATABASE_URL` está definida en el entorno, se devuelve tal cual
+        (útil para Neon/Render/Railway). Si no, se construye a partir de los
+        campos individuales DB_HOST/DB_NAME/...
+        """
+        if self.DATABASE_URL:
+            url = self.DATABASE_URL.strip()
+            if not url.startswith("postgresql+psycopg2://") and not url.startswith("postgresql://"):
+                raise ValueError(
+                    "DATABASE_URL debe usar el driver 'postgresql+psycopg2://' "
+                    "(o 'postgresql://'). El backend usa SQLAlchemy síncrono."
+                )
+            return url
         return (
             f"postgresql+psycopg2://{self.DB_USER}:{self.DB_PASSWORD}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
