@@ -62,6 +62,7 @@ class Settings(BaseSettings):
             "http://localhost:3000",
             "http://localhost:5173",
             "http://localhost:4173",
+            "https://bustoke-clientes.vercel.app",
         ]
     )
 

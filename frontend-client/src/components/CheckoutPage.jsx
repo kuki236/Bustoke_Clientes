@@ -1604,6 +1604,13 @@ export default function CheckoutPage({
       buyerIsPax1,
     })
 
+    console.log(
+      '[Checkout] POST https://bustoke-backend.onrender.com/v1/bookings/process',
+      payload,
+    )
+
+    setIsProcessing(true)
+    setPayError(null)
     try {
       const result = await processBookingRequest(payload)
 

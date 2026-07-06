@@ -70,7 +70,7 @@ function QrBlock({ value }) {
       aria-label={`Código QR ${value}`}
     >
       <QRCodeSVG
-        value={`${getBoletoValidationUrl()}/v1/boletos/validar/${value}`}
+        value={`https://bustoke-backend.onrender.com/v1/boletos/validar/${value}`}
         size={112}
         className="p-1 bg-white rounded-md border border-slate-200"
       />
