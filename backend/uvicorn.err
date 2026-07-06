@@ -104,3 +104,21 @@ INFO:     Started server process [31436]
 INFO:     Waiting for application startup.
 2026-07-05 23:52:13 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
 INFO:     Application startup complete.
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            WARNING:  WatchFiles detected changes in 'app\api\v1\routes\seats.py', 'app\schemas\booking_schema.py', 'app\api\v1\routes\travels.py', 'app\services\seat_service.py', 'app\core\config.py', 'app\schemas\seat_schema.py', 'app\models\travel.py', 'app\api\v1\routes\boletos.py', 'app\api\v1\routes\__init__.py', 'app\main.py', 'app\services\booking_service.py', 'app\repositories\travel_repository.py', 'app\services\travel_service.py', 'app\services\auth_service.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [25596]
+WARNING:  WatchFiles detected changes in 'app\api\v1\routes\seats.py', 'app\schemas\booking_schema.py', 'app\api\v1\routes\travels.py', 'app\services\seat_service.py', 'app\core\config.py', 'app\schemas\seat_schema.py', 'app\models\travel.py', 'app\api\v1\routes\boletos.py', 'app\api\v1\routes\__init__.py', 'app\main.py', 'app\services\booking_service.py', 'app\repositories\travel_repository.py', 'app\services\travel_service.py', 'app\services\auth_service.py'. Reloading...
+INFO:     Started server process [36716]
+INFO:     Waiting for application startup.
+2026-07-05 23:57:47 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
+INFO:     Application startup complete.
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [36716]
+INFO:     Started server process [6404]
+INFO:     Waiting for application startup.
+2026-07-05 23:57:49 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
+INFO:     Application startup complete.
