@@ -279,9 +279,8 @@ export default function CheckoutSuccessPage() {
         setShowCopiedToast(true)
       }
     } catch {
-      // Copia silenciosa: si el navegador bloquea el portapapeles,
-      // seguimos intentando abrir el menú nativo o mostraremos el
-      // aviso de confirmación en el fallback.
+// Copia silenciosa: si el navegador bloquea el portapapeles,
+
       setShowCopiedToast(true)
     }
 

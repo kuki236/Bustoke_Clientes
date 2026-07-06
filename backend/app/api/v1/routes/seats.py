@@ -33,9 +33,6 @@ router = APIRouter()
 
 
 # ============================================================================
-# POST /v1/seats/hold - Bloquear asiento temporalmente (RF-05)
-# ============================================================================
-
 @router.post(
     "/hold",
     response_model=SeatHoldResult,
@@ -80,9 +77,6 @@ async def hold_seat(
 
 
 # ============================================================================
-# POST /v1/seats/release - Liberar bloqueo temporal
-# ============================================================================
-
 @router.post(
     "/release",
     response_model=SeatHoldResult,
@@ -110,9 +104,7 @@ async def release_hold(
     try:
         db.commit()
     except Exception:
-        # Sesión sucia: hacemos rollback y devolvemos éxito tolerante.
-        # El frontend no debe romperse por una falla transitoria al
-        # desbloquear (un 500 aquí era el origen del "Technical Error").
+# Sesión sucia: hacemos rollback y devolvemos éxito tolerante.
         db.rollback()
         return SeatHoldResult(
             id_viaje=payload.id_viaje,
@@ -125,17 +117,6 @@ async def release_hold(
 
 
 # ============================================================================
-# POST /v1/seats/release-sync - Liberar MÚLTIPLES holds vía sendBeacon
-# FIX BUG-049/050/051: previene "holds zombies" cuando el usuario
-#   - hace BACK del navegador
-#   - cierra la pestaña
-#   - hace F5
-#   - navega a otra URL
-# El frontend envía esta lista en `beforeunload` con navigator.sendBeacon().
-# El endpoint SIEMPRE retorna 200 con la lista de releases efectivos
-# (best-effort), independientemente de errores de BD.
-# ============================================================================
-
 class BeaconReleaseItem(BaseModel):
     id_viaje: int = Field(..., ge=1)
     id_asiento: int = Field(..., ge=1)
@@ -184,9 +165,6 @@ async def release_holds_beacon(
 
 
 # ============================================================================
-# POST /v1/seats/checkout - Stub para fase de pagos (RF-07)
-# ============================================================================
-
 @router.post(
     "/checkout",
     summary="Checkout y emisión de boleto (RF-07)",

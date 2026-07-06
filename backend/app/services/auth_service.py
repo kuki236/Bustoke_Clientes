@@ -42,10 +42,7 @@ class AuthService:
         self.users = UserRepository(db)
         self.pasajeros = PasajeroRepository(db)
 
-    # ========================================================================
-    # REGISTRO (RF-01)
-    # ========================================================================
-
+# ========================================================================
     def register(self, payload: RegisterSchema) -> TokenResponse:
         """
         Registra un nuevo pasajero y crea de forma atómica su ficha
@@ -65,10 +62,7 @@ class AuthService:
 
         Devuelve un `TokenResponse` listo para entregar al frontend.
         """
-        # FIX BUG-002/020: normalizar email a minúsculas antes de validar
-        # unicidad y persistir. Combinado con el índice único
-        # `uq_usuarios_email_lower` de la BD, "Juan@x.com" y "juan@x.com"
-        # son el mismo usuario.
+# FIX BUG-002/020: normalizar email a minúsculas antes de validar
         normalized_email = normalize_email(payload.email)
 
         # 1. Validación de unicidad de email (pre-check; la BD también
@@ -125,9 +119,7 @@ class AuthService:
         )
         self.pasajeros.add(new_pasajero)
 
-        # 6. Cierre de la transacción atómica. Si algo falla aquí
-        #    (DNI duplicado, FK rota, etc.) Postgres hace rollback
-        #    de AMBOS inserts.
+# 6. Cierre de la transacción atómica. Si algo falla aquí
         try:
             self.db.commit()
         except IntegrityError as exc:
@@ -144,10 +136,7 @@ class AuthService:
         # 8. Emisión de tokens
         return self._build_token_response(new_user)
 
-    # ========================================================================
-    # LOGIN (RF-02)
-    # ========================================================================
-
+# ========================================================================
     def login(self, payload: LoginRequest) -> TokenResponse:
         """
         Autentica a un usuario por email + contraseña.
@@ -177,10 +166,7 @@ class AuthService:
 
         return self._build_token_response(user)
 
-    # ========================================================================
-    # REFRESH TOKEN
-    # ========================================================================
-
+# ========================================================================
     def refresh(self, user_id: int) -> TokenResponse:
         """Renueva los tokens de un usuario autenticado por su id."""
         user = self.users.get_by_id(user_id)
@@ -191,10 +177,7 @@ class AuthService:
             )
         return self._build_token_response(user)
 
-    # ========================================================================
-    # PERFIL (RF-02)
-    # ========================================================================
-
+# ========================================================================
     def get_me(self, user_id: int) -> UsuarioRead:
         """Devuelve el `UsuarioRead` enriquecido del usuario autenticado."""
         user = self.users.get_by_id(user_id)
@@ -205,10 +188,7 @@ class AuthService:
             )
         return self._build_usuario_read(user)
 
-    # ========================================================================
-    # HELPERS
-    # ========================================================================
-
+# ========================================================================
     def _build_usuario_read(self, user: Usuario) -> UsuarioRead:
         """
         Proyecta un `Usuario` a `UsuarioRead` enriqueciéndolo con los

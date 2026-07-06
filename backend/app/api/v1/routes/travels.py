@@ -30,17 +30,11 @@ TipoServicioLiteral = Literal["vip", "normal"]
 MAX_SEARCH_DAYS = 90
 
 # PERFORMANCE: cache HTTP para /search. Los resultados no cambian
-# drásticamente en 30s (los bloqueos temporales son la única parte
-# dinámica, y expirar cada 10 min). Permitimos cache público de 30s
-# y stale-while-revalidate de 60s para suavizar picos de tráfico.
 SEARCH_CACHE_MAX_AGE = 30
 SEARCH_CACHE_SWR = 60
 
 
 # ============================================================================
-# GET /v1/travels/search - Búsqueda de viajes disponibles
-# ============================================================================
-
 @router.get(
     "/search",
     response_model=List[ViajeBusquedaResponse],
@@ -96,9 +90,7 @@ async def search_travels(
     - `tipo_servicio`: "vip" | "normal".
     - `turno`: "manana" | "tarde" | "noche".
     """
-    # FIX BUG-028: rechazar fechas pasadas. El frontend ya valida
-    # con `min` en el input, pero un request directo a la API
-    # podría saltarse esa restricción. Defensa en profundidad.
+# FIX BUG-028: rechazar fechas pasadas. El frontend ya valida
     today = date.today()
     if fecha_salida < today:
         raise HTTPException(
@@ -158,9 +150,6 @@ async def search_travels(
 
 
 # ============================================================================
-# GET /v1/travels/{id_viaje} - Detalle de un viaje
-# ============================================================================
-
 @router.get(
     "/{id_viaje}",
     response_model=ViajeBusquedaResponse,
@@ -203,9 +192,6 @@ async def get_travel(
 
 
 # ============================================================================
-# GET /v1/travels/{id_viaje}/seats - Mapa de asientos
-# ============================================================================
-
 @router.get(
     "/{id_viaje}/seats",
     response_model=MapaAsientosResponse,
@@ -233,9 +219,6 @@ async def get_travel_seats(
 
 
 # ============================================================================
-# GET /v1/travels/{id_viaje}/manifiesto - Manifiesto SUTRAN (RF-17)
-# ============================================================================
-
 @router.get(
     "/{id_viaje}/manifiesto",
     summary="Manifiesto oficial SUTRAN (RF-17)",

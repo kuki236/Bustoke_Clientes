@@ -39,9 +39,7 @@ class PaymentService:
     """Crea y consulta `Payment` en Mercado Pago."""
 
     def __init__(self, db: Session | None = None) -> None:
-        # La SDK no usa el `db`; lo dejamos por simetría con los otros
-        # services y por si en el futuro queremos persistir la
-        # referencia de MP en una tabla `pagos_mp`.
+# La SDK no usa el `db`; lo dejamos por simetría con los otros
         self.db = db
         access_token = (settings.MERCADOPAGO_ACCESS_TOKEN or "").strip()
         if not access_token:
@@ -53,10 +51,7 @@ class PaymentService:
         # En 2.3.0 ambos funcionan, pero la nueva forma es la canónica.
         self.sdk = mercadopago.SDK(access_token)
 
-    # ------------------------------------------------------------------
-    # Creación del Payment
-    # ------------------------------------------------------------------
-
+# ------------------------------------------------------------------
     def create_card_payment(
         self, payload: CardPaymentCreateRequest
     ) -> CardPaymentCreateResponse:
@@ -78,10 +73,7 @@ class PaymentService:
             "payer": {
                 "email": payload.payer.email,
             },
-            # Forzamos auto_return off: el Brick hace el manejo de la
-            # respuesta con su `onSubmit` / `onError` y nosotros no
-            # usamos redirect. El statement_descriptor es lo que verá
-            # el cliente en su resumen bancario.
+# Forzamos auto_return off: el Brick hace el manejo de la
             "statement_descriptor": "BUSTOKE",
         }
         if payload.issuer_id:

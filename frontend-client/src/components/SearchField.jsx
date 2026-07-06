@@ -68,15 +68,8 @@ function DateField({ label, value, placeholder, min, max, onChange, wrapperClass
     try {
       input.showPicker()
     } catch (err) {
-      // FIX showPicker NotAllowedError:
-      // `showPicker()` requiere un "transient activation" (gesto del
-      // usuario) y algunos navegadores (Firefox ETP, Brave Shields,
-      // Safari ITP) lo bloquean cuando el input está envuelto en un
-      // contenedor con `opacity: 0` o dentro de un stacking context.
-      // El input sigue siendo clickeable: cuando el usuario hace click
-      // el navegador abre el picker de fecha de forma nativa, así que
-      // este error NO afecta la funcionalidad, solo lo silenciamos
-      // para no asustar al usuario con un NotAllowedError en consola.
+// FIX showPicker NotAllowedError:
+
     }
   }
 

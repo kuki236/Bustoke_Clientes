@@ -116,10 +116,7 @@ function ReportIssueTooltip({ onReportIssue, trip, iconClassName = '' }) {
 }
 
 // FIX BUG-126: la rampa de embarque viene del backend en
-// `viaje.rampa_embarque`. Se removió la función que la calculaba
-// del último dígito del asiento (era información FALSA).
-// `trip.rampaEmbarque` lo provee el normalizador de api/boletos.js
-// desde el response del endpoint /v1/boletos/historial.
+
 
 function GuidedRouteToggle({ trip, children }) {
   const [showMap, setShowMap] = useState(false)
@@ -155,9 +152,8 @@ function HistoryCardMobile({ trip, onReportIssue }) {
   const embarque = trip.rampaEmbarque
     ? `Rampa ${trip.rampaEmbarque}`
     : 'Rampa por asignar'
-  // FIX BUG-154: pasamos el nombre de la ciudad como dirección de mapa
-  // (la dirección específica del terminal requeriría extender la API
-  // para incluir `terminal.direccion` en el response del historial).
+// FIX BUG-154: pasamos el nombre de la ciudad como dirección de mapa
+
   const mapAddress = trip.origin
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState(null)

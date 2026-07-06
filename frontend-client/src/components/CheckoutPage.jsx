@@ -11,7 +11,7 @@ import { ArrowLeft, Clock, CreditCard, Smartphone, UserCircle2, X } from 'lucide
 import Navbar from './Navbar'
 import BottomNav from './BottomNav'
 import Alert from './Alert'
-import MockCardPaymentForm from './MercadoPagoMockBrick'
+import LocalCardPaymentForm from './LocalCardPaymentForm'
 import { processBookingRequest } from '../api/bookings'
 import { createCardPayment } from '../api/payments'
 import { useAuth } from '../context/AuthContext'
@@ -23,16 +23,9 @@ const SEAT_SESSION_TOKEN_KEY = 'bustoke_seat_session_token'
 const CHECKOUT_SEATS_STORAGE_KEY = 'bustoke_checkout_seats_full'
 const RESERVATION_SECONDS = 600
 const ALERT_THRESHOLD_SECONDS = 120
-// FIX MOCK-MP: simulación visual del Card Payment Brick. Cuando es
-// `true`, NO se carga el SDK de MP ni se llama a la API de MP. El
-// `MockCardPaymentForm` renderiza los mismos campos (número, vto,
-// CVV, titular, documento) y genera un `mp_payment_id` local. Útil
-// cuando el sandbox de MP está inestable (los 500 transitorios del
-// BIN lookup) o para demo de UI sin depender de MP.
-// Para volver al Brick real: `import.meta.env.VITE_USE_MOCK_MP !== 'false'`
-const USE_MOCK_MP = (() => {
+const USE_LOCAL_CARD_FORM = (() => {
   try {
-    return import.meta.env.VITE_USE_MOCK_MP !== 'false'
+    return import.meta.env.VITE_USE_LOCAL_CARD_FORM !== 'false'
   } catch {
     return true
   }
@@ -172,10 +165,6 @@ function getEmptyPassenger(seat) {
 }
 
 function getEmptyBuyer() {
-  // FIX UX: el bloque "Datos del comprador" ahora solo guarda el
-  // email + (opcionalmente) un nombre completo cuando el comprador
-  // NO es Pasajero 1. El resto se deriva de Pasajero 1 o del Brick
-  // al construir el payload del booking. Ver `handlePay`.
   return {
     email: '',
     fullName: '',
@@ -205,22 +194,12 @@ function splitFullName(fullName) {
 }
 
 function buyerFromUser(user) {
-  // FIX UX: solo necesitamos el email del perfil. El resto (nombre,
-  // documento) se deriva de Pasajero 1 o del Brick en `handlePay`.
   if (!user) return getEmptyBuyer()
   return {
     email: String(user.email ?? user.correo ?? '').trim(),
   }
 }
 
-// FIX: helper para extraer del perfil los datos que se copian a
-// Pasajero 1 cuando el usuario marca "Usar mis datos de perfil".
-// Devuelve SOLO los campos que el perfil tiene garantizados (doc,
-// nombres, apellidos). El email NO se copia al pasajero (el
-// pasajero no tiene email; el email va al bloque del comprador).
-// La fecha de nacimiento NO se copia porque el perfil no la tiene
-// (INDECOPI no la exige en el registro); se deja habilitada para
-// que el usuario la complete manualmente.
 function passengerFromUser(user) {
   if (!user) return null
   const pick = (...keys) => {
@@ -243,7 +222,6 @@ function passengerFromUser(user) {
     maternalSurname: String(
       pick('maternalSurname', 'apellidoMaterno', 'apellido_materno'),
     ).trim(),
-    // fechaNacimiento: NO viene del perfil, queda vacía y habilitada
   }
 }
 
@@ -307,13 +285,8 @@ function buildBookingPayload({
   const metodoPago = PAYMENT_METHOD_TO_BACKEND[paymentMethod] || 'tarjeta'
   const firstPax = passengers[0] || {}
 
-  // FIX UX: derivar los datos de identidad del comprador sin
-  // pedirle al usuario que los escriba dos veces.
-  //   - Si el comprador es Pasajero 1, todo se toma de Pax 1
-  //     (que el usuario ya completó arriba).
-  //   - Si NO es Pax 1, el DNI se toma del Brick (cardFormData.payer
-  //     .identification) y el nombre se toma de buyer.fullName.
-  //   - El email siempre viene del bloque "Email de contacto".
+// FIX UX: derivar los datos de identidad del comprador sin
+
   let docType, docNumber, names, paternalSurname, maternalSurname
 
   if (buyerIsPax1) {
@@ -355,9 +328,8 @@ function buildBookingPayload({
       fecha_nacimiento: pax.fechaNacimiento,
     })),
     metodo_pago: metodoPago,
-    // FIX BUG-111: enviar explícitamente la aceptación de términos.
-    // El backend persiste el valor real; antes siempre quedaba `true`
-    // por el server_default aunque el usuario NO hubiera marcado.
+// FIX BUG-111: enviar explícitamente la aceptación de términos.
+
     acepto_terminos_politicas: Boolean(acceptedTerms),
     // ID del Payment de Mercado Pago cuando el método es tarjeta.
     // El backend lo usa como referencia_transaccion ("MP-<id>").
@@ -634,11 +606,8 @@ function PassengerAccordionItem({
             value={passenger.fechaNacimiento}
             onChange={(v) => update('fechaNacimiento', v)}
             max="2010-12-31"
-            // FIX UX: solo bloqueamos la fecha de nacimiento si el
-            // perfil la trae. En el registro NO se pide fecha de
-            // nacimiento (INDECOPI no la exige), así que el campo
-            // queda editable aunque el usuario marque "Usar mis
-            // datos de perfil".
+// FIX UX: solo bloqueamos la fecha de nacimiento si el
+
           />
         </div>
       </div>
@@ -654,15 +623,6 @@ function BuyerBlock({
   isLoggedIn = false,
   buyerReadOnlyReason = null,
 }) {
-  // FIX UX: el bloque del comprador se reduce a "Email de contacto"
-  // (obligatorio para SUTRAN/INDECOPI y para enviar el PDF del
-  // boleto) + el checkbox "Es el Pasajero 1". Los datos de
-  // identidad del comprador (DNI, nombre, apellido) se derivan
-  // automáticamente de:
-  //   - Pasajero 1, si el checkbox está activo (99% de los casos).
-  //   - La sección de tarjeta del Brick, si el checkbox está
-  //     inactivo (el titular de la tarjeta es otra persona).
-  // Ver `handlePay` para la derivación.
   const update = (field, value) => {
     onChange({ ...buyer, [field]: value })
   }
@@ -768,11 +728,8 @@ function PaymentOption({ option, selected, onSelect }) {
 }
 
 function SummaryCard({ trip, selectedSeats, total, date }) {
-  // FIX bug "Cannot read properties of null (reading 'origin')":
-  // cuando el usuario navega checkout → volver → seleccionar →
-  // checkout, el `trip` puede venir null/undefined desde el state
-  // de React Router. Hacemos destructuring defensivo con fallbacks
-  // para que el componente siempre renderice algo legible.
+// FIX bug "Cannot read properties of null (reading 'origin')":
+
   const safeTrip = trip && typeof trip === 'object' ? trip : {}
   const displaySeats = Array.isArray(selectedSeats)
     ? selectedSeats.map(formatSeat)
@@ -959,10 +916,8 @@ function CardPaymentBrickContainer({
   onReady,
 }) {
   const reactId = useId()
-  // FIX mobile/PC: `brickNonce` se incluye en el `containerId` para
-  // forzar la creación de un contenedor NUEVO cuando el usuario
-  // hace retry. Sin esto, MP reutiliza el contenedor anterior
-  // (con sus iframes rotas) y nunca se recupera del error.
+// FIX mobile/PC: `brickNonce` se incluye en el `containerId` para
+
   const [brickNonce, setBrickNonce] = useState(0)
   // FIX mobile/PC: estado de error expuesto en UI para mostrar un
   // botón "Reintentar" cuando los Secure Fields fallan.
@@ -973,20 +928,13 @@ function CardPaymentBrickContainer({
   )}_${brickNonce}`
   const containerRef = useRef(null)
   const controllerRef = useRef(null)
-  // Guardamos los callbacks en refs para que el `useEffect` no se
-  // re-ejecute cada vez que el padre re-renderiza con un callback
-  // nuevo (handlePay del padre cambia de identidad en cada render).
+// Guardamos los callbacks en refs para que el `useEffect` no se
+
   const onSubmitRef = useRef(onSubmit)
   const onErrorRef = useRef(onError)
   const onReadyRef = useRef(onReady)
-  // FIX Bug MercadoPago Brick + React 18+ StrictMode:
-  // En dev, StrictMode monta-desmonta-remonta el componente. La
-  // segunda llamada a `bricksBuilder.create()` falla con
-  // `Failed to execute 'removeChild' on 'Node'` porque MP corrompe
-  // su estado interno. Usamos `initializedRef` para garantizar UNA
-  // sola creación por ciclo de vida del componente, y NO
-  // desmontamos en el cleanup de StrictMode (porque la siguiente
-  // montura reutilizará el contenedor).
+// FIX Bug MercadoPago Brick + React 18+ StrictMode:
+
   const initializedRef = useRef(false)
 
   useEffect(() => {
@@ -1008,27 +956,13 @@ function CardPaymentBrickContainer({
       return
     }
 
-    // FIX brick vacío (sin console message): ELIMINADO el setTimeout
-    // que tenía un bug de deadlock con el cleanup + `initializedRef`.
-    // El `setTimeout(150)` se creaba y se destruía en cada re-render
-    // del padre (porque `externalReference` se recomputa en cada
-    // render), y `initializedRef.current = true` se seteaba ANTES
-    // del timer, así que cuando el effect re-corría salía por el
-    // `if (initializedRef.current) return` y nunca creaba el Brick.
-    //
-    // Ahora creamos el Brick SÍNCRONAMENTE en mount. El container
-    // ya está en el DOM cuando el effect corre (React ejecuta
-    // effects DESPUÉS del commit), así que no necesitamos esperar.
+// FIX brick vacío (sin console message): ELIMINADO el setTimeout
+
     try {
       const mp = new window.MercadoPago(MERCADOPAGO_PUBLIC_KEY, {
         locale: 'es-PE',
-        // FIX submit error: dejamos `advancedFraudPrevention` en su
-        // valor por defecto (omitimos la opción). En sandbox el
-        // default es `false`; en producción es `true`. Forzar `false`
-        // explícitamente puede romper la tokenización en algunas
-        // configuraciones regionales. Si necesitas PCI estricto en
-        // producción, configura esto en el backend o via variables
-        // de entorno del bundle.
+// FIX submit error: dejamos `advancedFraudPrevention` en su
+
       })
       const bricksBuilder = mp.bricks()
 
@@ -1037,9 +971,8 @@ function CardPaymentBrickContainer({
           amount: Number(amount) || 0,
           payer: {
             email: payerEmail || '',
-            // FIX UX: pre-rellenamos el nombre del titular con el
-            // nombre del comprador. Si el Brick lo soporta, evita que
-            // el usuario escriba el mismo nombre 2 veces.
+// FIX UX: pre-rellenamos el nombre del titular con el
+
             ...(cardholderName ? { firstName: cardholderName } : {}),
           },
         },
@@ -1069,12 +1002,8 @@ function CardPaymentBrickContainer({
             }
           },
           onError: (error) => {
-            // FIX debug: extraemos todas las propiedades del error,
-            // incluyendo las no-enumerables, para entender el
-            // `cause` real. `secure_fields_card_token_creation_failed`
-            // suele indicar: (a) bloqueador de contenido en el
-            // navegador, (b) tarjeta rechazada por el sandbox, o
-            // (c) estado corrupto de los iframes de MP.
+// FIX debug: extraemos todas las propiedades del error,
+
             const detail = {
               cause: error?.cause,
               message: error?.message,
@@ -1083,21 +1012,8 @@ function CardPaymentBrickContainer({
             }
             console.error('[MP] onError DETALLE', detail)
 
-            // FIX get_card_bin_payment_methods_failed:
-            // Este error es NO CRÍTICO (`type: "non_critical"`). Lo
-            // emite el Brick cuando falla la llamada a
-            // `api.mercadopago.com/v1/card_bin_payment_methods` (la
-            // API que devuelve las cuotas según el BIN de la tarjeta).
-            // Suele pasar por:
-            //   1. Sandbox de MP inestable (responde 500 transitorio).
-            //   2. BIN de tarjeta no reconocido por MP (típico cuando
-            //      se tipea una tarjeta que NO es de prueba).
-            //   3. Bloqueador de contenido (uBlock, AdGuard, etc.).
-            // NO bloquea el submit: el usuario igual puede tokenizar
-            // la tarjeta. Solo le impedirá ver el selector de cuotas.
-            // Por eso NO mostramos un error en UI (asustaríamos al
-            // usuario por algo que no afecta al pago) y dejamos que
-            // el flujo continúe.
+// FIX get_card_bin_payment_methods_failed:
+
             if (
               error?.cause === 'get_card_bin_payment_methods_failed' ||
               error?.message === 'get_card_bin_payment_methods_failed'
@@ -1110,10 +1026,8 @@ function CardPaymentBrickContainer({
               return
             }
 
-            // FIX UX: si MP reporta este error específico,
-            // exponemos un mensaje claro al usuario y permitimos
-            // reintentar. Sin esto, el usuario solo ve `console.error`
-            // y no entiende por qué no puede pagar.
+// FIX UX: si MP reporta este error específico,
+
             if (error?.cause === 'secure_fields_card_token_creation_failed') {
               const hint =
                 'No pudimos tokenizar la tarjeta. Causas comunes: ' +
@@ -1146,37 +1060,20 @@ function CardPaymentBrickContainer({
           setLoadError(true)
         })
     } catch (err) {
-      // FIX mobile/PC: capturamos errores SÍNCRONOS (inicialización
-      // del SDK MP, settings inválidos, etc.) que el `.catch()` de
-      // la promesa no cubre. Sin esto, un error de MP al construir
-      // el Brick se propagaba a React y crasheaba el componente.
+// FIX mobile/PC: capturamos errores SÍNCRONOS (inicialización
+
       console.error('[MP] Error síncrono al crear el Brick', err)
       initializedRef.current = false
       setLoadError(true)
     }
 
-    // NO cleanup aquí. El Brick se desmonta implícitamente cuando
-    // React elimina el `<div id={containerId}>` del DOM (al
-    // desmontar el componente o cambiar de ruta). Llamar a
-    // `controller.unmount()` en el cleanup de StrictMode corrompe
-    // el estado interno de MP y rompe el siguiente mount.
-    //
-    // FIX deps: el effect SOLO se re-ejecuta cuando cambia
-    // `containerId` (es decir, cuando el usuario hace retry con
-    // `brickNonce`). Si pusiéramos `amount`/`payerEmail`/
-    // `externalReference` en las deps, el effect re-corrrería en
-    // cada render del padre (porque `buildExternalReference()` se
-    // llama inline y devuelve un string nuevo cada vez) y el
-    // cleanup mataría el Brick antes de que termine de cargar.
-    // Los callbacks usan refs (`onSubmitRef`, `onErrorRef`,
-    // `onReadyRef`) para tener siempre los valores frescos.
+// NO cleanup aquí. El Brick se desmonta implícitamente cuando
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerId])
 
-  // FIX mobile: handler de retry que fuerza un re-mount limpio
-  // del Brick. Incrementa `brickNonce` (cambia containerId →
-  // re-corre el useEffect de creación) y desmonta el controller
-  // anterior explícitamente.
+// FIX mobile: handler de retry que fuerza un re-mount limpio
+
   const handleRetry = useCallback(() => {
     if (controllerRef.current) {
       try {
@@ -1224,27 +1121,12 @@ function CardPaymentBrickContainer({
         data-testid="card-payment-brick"
         style={{
           minHeight: loadError ? 0 : 350,
-          // FIX mobile tap en vencimiento / CVC: MP inyecta iframes
-          // (Secure Fields) dentro de este div. Sin un `stacking
-          // context` propio, esos iframes pueden quedar atrapados
-          // detrás de otros elementos (especialmente en mobile con
-          // `flex flex-col` + scroll), lo que impide que el tap
-          // llegue al input real. `position: relative` + `zIndex: 1`
-          // crea un stacking context que los sitúa por encima del
-          // layout circundante.
-          //
-          // FIX submit error: ELIMINADO `isolation: isolate`.
-          // Varios reportes en el repo de MP Brick y en GitHub
-          // confirman que `isolation: isolate` interfiere con los
-          // Secure Fields al momento de tokenizar, causando
-          // `secure_fields_card_token_creation_failed`. El
-          // stacking context que necesitamos ya lo provee
-          // `position: relative` + `zIndex: 1`.
+// FIX mobile tap en vencimiento / CVC: MP inyecta iframes
+
           position: 'relative',
           zIndex: 1,
-          // FIX mobile: en iOS Safari, los iframes dentro de un
-          // contenedor con `-webkit-overflow-scrolling: touch` no
-          // reciben taps. `touchAction: 'manipulation'` lo arregla.
+// FIX mobile: en iOS Safari, los iframes dentro de un
+
           touchAction: 'manipulation',
         }}
       />
@@ -1295,8 +1177,8 @@ function PaymentPanel({
             >
               Procesando pago con Mercado Pago...
             </div>
-          ) : USE_MOCK_MP ? (
-            <MockCardPaymentForm
+          ) : USE_LOCAL_CARD_FORM ? (
+            <LocalCardPaymentForm
               amount={total}
               payerEmail={payerEmail}
               onEmailChange={onPayerEmailChange}
@@ -1351,11 +1233,8 @@ export default function CheckoutPage({
 }) {
   const location = useLocation()
   const navigate = useNavigate()
-  // NOTA: `location.state` es un objeto nuevo en cada render. Los
-  // useCallback que dependen de él se recrean también, pero el costo
-  // es despreciable para este componente (solo se ejecutan al hacer
-  // click). Antes había un useMemo aquí pero causaba un warning de
-  // ESLint peor; lo dejamos simple.
+// NOTA: `location.state` es un objeto nuevo en cada render. Los
+
   const stateData = location.state || {}
 
   const trip = stateData.trip ?? tripProp ?? null
@@ -1376,13 +1255,8 @@ export default function CheckoutPage({
     ? selectedSeatsFullFromState
     : selectedSeatsFullFromProps
 
-  // FIX bug "el hold no coincide con el asiento del booking": el
-  // fallback a sessionStorage puede traer datos de un test anterior
-  // con un id_asiento que ya no tiene hold activo. Lo aceptamos
-  // igual (es un fallback legítimo) pero logueamos claramente
-  // para que un 409 posterior sea fácil de debuggear — el
-  // developer verá en consola que el seatIdMap vino del
-  // sessionStorage y puede comparar con los holds en la BD.
+// FIX bug "el hold no coincide con el asiento del booking": el
+
   if (selectedSeatsFull.length === 0) {
     const fallbackSeats = readCheckoutSeatsFromStorage()
     if (fallbackSeats.length > 0) {
@@ -1429,9 +1303,8 @@ export default function CheckoutPage({
     () => (isAuthenticated ? buyerFromUser(user) : getEmptyBuyer()),
     [isAuthenticated, user],
   )
-  // FIX: datos del perfil que se copian a Pasajero 1 cuando el
-  // usuario marca "Usar mis datos de perfil". Separado de
-  // `profileBuyer` (que ahora solo trae el email).
+// FIX: datos del perfil que se copian a Pasajero 1 cuando el
+
   const profilePassenger = useMemo(
     () => (isAuthenticated ? passengerFromUser(user) : null),
     [isAuthenticated, user],
@@ -1491,9 +1364,8 @@ export default function CheckoutPage({
                     profilePassenger.paternalSurname || p.paternalSurname,
                   maternalSurname:
                     profilePassenger.maternalSurname || p.maternalSurname,
-                  // fechaNacimiento NO se copia del perfil: el registro
-                  // no la pide, queda habilitada para que el usuario
-                  // la complete manualmente.
+// fechaNacimiento NO se copia del perfil: el registro
+
                 }
               : p,
           ),
@@ -1508,10 +1380,8 @@ export default function CheckoutPage({
     ? 'Estos datos vienen de tu perfil y se usarán para emitir el comprobante.'
     : null
 
-  // FIX UX: nombre del titular de la tarjeta para pre-rellenar el Brick.
-  // Si el comprador es Pasajero 1, usamos el nombre de Pax 1.
-  // Si NO, usamos el `buyer.fullName` (campo único que aparece solo
-  // cuando el checkbox "Es Pasajero 1" está desmarcado).
+// FIX UX: nombre del titular de la tarjeta para pre-rellenar el Brick.
+
   const resolveCardholderName = useCallback(() => {
     if (buyerIsPax1) {
       const p0 = passengers[0]
@@ -1524,12 +1394,8 @@ export default function CheckoutPage({
     return String(buyer?.fullName || '').trim()
   }, [buyerIsPax1, passengers, buyer])
 
-  // FIX message_channel_error: memoizamos `externalReference` para
-  // que NO cambie en cada render del padre. Sin esto, MP Brick
-  // re-evalúa su `postMessage` channel en cada cambio y puede
-  // romper el handshake al tokenizar. El Brick solo necesita el
-  // valor actualizado cuando cambia el `idViaje` o el `tokenSesion`
-  // (que son los identificadores reales de la reserva).
+// FIX message_channel_error: memoizamos `externalReference` para
+
   const externalReferenceValue = useMemo(
     () =>
       buildExternalReference({
@@ -1585,16 +1451,8 @@ export default function CheckoutPage({
       return
     }
     if (idViaje) {
-      // FIX bug "Resumen de Compra muestra guiones":
-      // Antes navegaba al mapa de asientos SIN pasar el state.
-      // Eso borraba `trip`, `searchValues`, `origin`, `destination`,
-      // `company`, `departureTime` y `date` del location.state, y al
-      // re-entrar a checkout la pantalla los recibía como null.
-      //
-      // Reenviamos el state completo (campos explícitos para que
-      // ESLint no se queje de que `stateData` cambia en cada render)
-      // para que el flujo "checkout → volver → seleccionar más →
-      // checkout" preserve los datos del viaje original.
+// FIX bug "Resumen de Compra muestra guiones":
+
       navigate(`/viaje/${idViaje}/asientos`, {
         state: {
           trip,
@@ -1691,25 +1549,11 @@ export default function CheckoutPage({
     setIsProcessing(true)
     setPayError(null)
 
-    // -----------------------------------------------------------------
-    // FLUJO TARJETA: el Brick ya tokenizó la tarjeta y nos entrega
-    // `cardFormData`. Llamamos a /v1/payments/create con esos datos
-    // (incluyendo el `external_reference` que el Brick propaga).
-    // Si MP aprueba, llamamos a /v1/bookings/process con el
-    // `mp_payment_id` para emitir la reserva. Si NO aprueba, NO
-    // emitimos reserva y devolvemos el mensaje al Brick (que
-    // mostrará el error inline).
-    // -----------------------------------------------------------------
     let mpPaymentId = null
     if (cardFormData) {
-      if (cardFormData.__mock) {
-        mpPaymentId = cardFormData.__mockPaymentId || Math.floor(Date.now() / 1000)
+      if (cardFormData.localPaymentId) {
+        mpPaymentId = cardFormData.localPaymentId
       } else {
-        // FIX: el Card Payment Brick NO incluye `cardholderName` en
-        // el `cardFormData` que pasa a `onSubmit` (solo lo guarda en
-        // el DOM interno). Por eso propagamos el nombre del
-        // comprador del checkout, que es la misma persona que paga
-        // con la tarjeta en el 99% de los casos.
         const buyerFullName = [
           buyer.names,
           buyer.paternalSurname,
@@ -1788,13 +1632,8 @@ export default function CheckoutPage({
           err,
         },
       )
-      // FIX UX: cuando el backend devuelve 409 con un mensaje
-      // genérico como "Algunos asientos no tienen un bloqueo
-      // activo para esta sesión" o "El asiento X ya tiene un
-      // boleto activo", el usuario no sabe que probablemente
-      // una compra anterior completó pero la página de éxito
-      // crasheó (problema conocido en versiones viejas). Lo
-      // guiamos a verificar "Mis Viajes" antes de reintentar.
+// FIX UX: cuando el backend devuelve 409 con un mensaje
+
       const isConflict = err?.status === 409
       const lowerMessage = String(err?.message || '').toLowerCase()
       const isStale =
@@ -1813,10 +1652,8 @@ export default function CheckoutPage({
           'No pudimos procesar el pago. Intenta nuevamente en unos minutos.'
       }
       setPayError(msg)
-      // Si el pago en MP ya fue aprobado y el booking falló, NO
-      // podemos reintentar el cobro (ya se cobró). Mostramos un
-      // mensaje claro para que el usuario contacte a soporte con
-      // el payment_id.
+// Si el pago en MP ya fue aprobado y el booking falló, NO
+
       if (mpPaymentId) {
         msg += ` (Pago MP #${mpPaymentId} ya fue procesado. Si no ves tus boletos en "Mis Viajes", contáctanos indicando este número.)`
         setPayError(msg)
@@ -1986,8 +1823,8 @@ export default function CheckoutPage({
               >
                 Procesando pago con Mercado Pago...
               </div>
-            ) : USE_MOCK_MP ? (
-              <MockCardPaymentForm
+            ) : USE_LOCAL_CARD_FORM ? (
+              <LocalCardPaymentForm
                 amount={total}
                 payerEmail={buyer.email}
                 onEmailChange={(v) => setBuyer((b) => ({ ...b, email: v }))}
@@ -1996,7 +1833,7 @@ export default function CheckoutPage({
                 onSubmit={handlePay}
                 onReady={() => {}}
                 onError={(err) => {
-                  console.error('[MP-MOCK] error (mobile)', err)
+                  console.error('[CardForm] error (mobile)', err)
                   if (err?.userMessage) setPayError(err.userMessage)
                 }}
               />

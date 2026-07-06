@@ -18,8 +18,7 @@ import BottomNav from './BottomNav'
 import Navbar from './Navbar'
 
 // FIX BUG-144: el campo "Tipo de Bien" fue removido del formulario
-// porque el backend nunca lo persistía. La distinción producto/servicio
-// ya está implícita en el `motivo` y `detalle` que el pasajero redacta.
+
 
 const TRACKING_PREFIX = 'REC'
 const TRACKING_CHARS = '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ'

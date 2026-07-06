@@ -8,7 +8,7 @@ const DOC_TYPES = [
   { value: 'RUC', label: 'RUC' },
 ]
 
-const MAGIC_WORDS = [
+const PAYMENT_STATES = [
   { code: 'APRO', status: 'approved', message: 'Pago aprobado por Mercado Pago.' },
   { code: 'OTHE', status: 'rejected', message: 'Pago rechazado por error general.' },
   { code: 'CONT', status: 'pending', message: 'Pago pendiente de procesamiento.' },
@@ -123,7 +123,7 @@ function FieldError({ children }) {
   )
 }
 
-export default function MercadoPagoMockBrick({
+export default function LocalCardPaymentForm({
   amount,
   payerEmail,
   onEmailChange,
@@ -227,30 +227,30 @@ export default function MercadoPagoMockBrick({
     await new Promise((r) => setTimeout(r, 1500))
 
     const nameUpper = name.toUpperCase()
-    const matchedMagic = MAGIC_WORDS.find((m) => nameUpper.includes(m.code))
+    const matchedState = PAYMENT_STATES.find((m) => nameUpper.includes(m.code))
 
-    if (matchedMagic && matchedMagic.status !== 'approved') {
-      setError(matchedMagic.message)
+    if (matchedState && matchedState.status !== 'approved') {
+      setError(matchedState.message)
       setSubmitting(false)
       onError?.({
-        cause: matchedMagic.code.toLowerCase(),
-        message: matchedMagic.message,
-        status: matchedMagic.status,
+        cause: matchedState.code.toLowerCase(),
+        message: matchedState.message,
+        status: matchedState.status,
       })
       return
     }
 
-    if (matchedMagic && matchedMagic.status === 'approved') {
-      onSuccess?.({ status: 'approved', id: 'mock-123456' })
+    if (matchedState && matchedState.status === 'approved') {
+      onSuccess?.({ status: 'approved' })
     }
 
-    const fakeToken = `MOCK-${Date.now()}-${Math.random()
+    const token = `TKN-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2, 12)}`
-    const fakePaymentId = Math.floor(Date.now() / 1000) % 1_000_000_000
+    const localPaymentId = Math.floor(Date.now() / 1000) % 1_000_000_000
 
     const cardFormData = {
-      token: fakeToken,
+      token,
       paymentMethodId:
         brand === 'master'
           ? 'master'
@@ -269,8 +269,7 @@ export default function MercadoPagoMockBrick({
         identification: { type: docType, number: docNumber },
       },
       cardholderName: name,
-      __mock: true,
-      __mockPaymentId: fakePaymentId,
+      localPaymentId,
     }
 
     try {
@@ -545,7 +544,7 @@ export default function MercadoPagoMockBrick({
 
         <details className="text-[11px] text-neutral-500 leading-relaxed">
           <summary className="cursor-pointer select-none hover:text-neutral-700">
-            Modo test · tarjetas y palabras mágicas
+            Tarjetas y estados de prueba
           </summary>
           <div className="mt-2 space-y-2 px-2 py-2 bg-neutral-50 border border-neutral-200 rounded-md text-left">
             <p>

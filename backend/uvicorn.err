@@ -18,3 +18,33 @@ INFO:     Application startup complete.
 2026-07-05 20:22:58 [INFO] app.services.email_service: [SMTP] email enviado a sebasxd236@gmail.com via smtp.gmail.com
 2026-07-05 21:45:53 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
 2026-07-05 21:46:02 [INFO] app.services.email_service: [SMTP] email enviado a sebasxd236@gmail.com via smtp.gmail.com
+WARNING:  WatchFiles detected changes in 'app\services\seat_service.py', 'app\api\v1\routes\seats.py', 'app\schemas\seat_schema.py', 'app\services\auth_service.py', 'app\api\v1\routes\boletos.py', 'app\api\v1\routes\travels.py', 'app\services\booking_service.py', 'app\services\payment_service.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [25044]
+INFO:     Started server process [424]
+INFO:     Waiting for application startup.
+2026-07-05 22:45:36 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'scripts\seed_viajes.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [424]
+INFO:     Started server process [3352]
+INFO:     Waiting for application startup.
+2026-07-05 22:55:03 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'scripts\seed_viajes.py'. Reloading...
+2026-07-05 23:11:41 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
+2026-07-05 23:11:47 [INFO] app.services.email_service: [SMTP] email enviado a sebasxd236@gmail.com via smtp.gmail.com
+INFO:     Shutting down
+INFO:     Waiting for connections to close. (CTRL+C to force quit)
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [3352]
+INFO:     Started server process [23060]
+INFO:     Waiting for application startup.
+2026-07-05 23:12:01 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
+INFO:     Application startup complete.
