@@ -151,3 +151,6 @@ INFO:     127.0.0.1:52710 - "GET /v1/auth/me HTTP/1.1" 200 OK
  INFO:     127.0.0.1:53251 - "GET /v1/auth/me HTTP/1.1" 200 OK
 INFO:     127.0.0.1:53251 - "GET /v1/auth/me HTTP/1.1" 200 OK
 INFO:     127.0.0.1:49669 - "GET /v1/boletos/historial HTTP/1.1" 200 OK
+ INFO:     127.0.0.1:64110 - "GET /v1/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64110 - "GET /v1/auth/me HTTP/1.1" 200 OK
+ INFO:     127.0.0.1:65458 - "GET /v1/boletos/historial HTTP/1.1" 200 OK
