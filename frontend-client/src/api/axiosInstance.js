@@ -61,7 +61,7 @@ export const TOKEN_STORAGE_KEY = ACCESS_TOKEN_KEY
 
 const axiosInstance = axios.create({
   baseURL : "https://bustoke-backend.onrender.com/v1",
-  timeout: 15000,
+  timeout: 150000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
