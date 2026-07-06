@@ -4,7 +4,28 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- FIX MP Brick secure_fields_card_token_creation_failed:
+         Algunos navegadores (Firefox con ETP estricto, Safari ITP,
+         Brave Shields) bloquean requests cross-origin a
+         api.mercadopago.com si la referrer policy es muy estricta.
+         El default moderno (`strict-origin-when-cross-origin`) puede
+         romper la tokenización del Card Payment Brick. Forzamos
+         `no-referrer-when-downgrade` que es el valor que MP soporta
+         oficialmente en su documentación. -->
+    <meta name="referrer" content="no-referrer-when-downgrade" />
     <title>BUSTOKE</title>
+    <!-- Mercado Pago SDK v2 (Card Payment Brick) -->
+    <!-- FIX message_channel_error: Chrome 149+ endureció las reglas
+         de postMessage cross-origin. Sin `crossorigin="anonymous"`,
+         el canal de comunicación entre los iframes de Secure Fields
+         y la ventana padre se rompe justo al tokenizar la tarjeta,
+         causando `secure_fields_card_token_creation_failed` con
+         `name: "message_channel_error"` en el reporte a MP. -->
+    <script
+      src="https://sdk.mercadopago.com/js/v2"
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer-when-downgrade"
+    ></script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,4 +1,20 @@
-INFO:     Started server process [784]
+INFO:     Will watch for changes in these directories: ['C:\\Users\\sebas\\Desktop\\sebas\\repos\\Bustoke_Clientes\\backend']
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [24460] using WatchFiles
+INFO:     Started server process [25044]
 INFO:     Waiting for application startup.
+2026-07-05 16:50:17 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
 INFO:     Application startup complete.
-INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+2026-07-05 17:04:04 [INFO] app.services.payment_service: [MP] Creando payment external_reference=BOOKING:1:test:1 amount=100 method=master
+2026-07-05 17:04:05 [WARNING] app.services.payment_service: [MP] Pago rechazado http=403 status=403 detail=Payer email forbidden
+2026-07-05 17:04:37 [INFO] app.services.payment_service: [MP] Creando payment external_reference=BOOKING:1:test:1 amount=100 method=master
+2026-07-05 17:04:38 [WARNING] app.services.payment_service: [MP] Pago rechazado http=403 status=403 detail=Payer email forbidden
+2026-07-05 18:31:02 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
+2026-07-05 20:06:27 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
+2026-07-05 20:06:33 [INFO] app.services.email_service: [SMTP] email enviado a sebasxd236@gmail.com via smtp.gmail.com
+2026-07-05 20:08:42 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
+2026-07-05 20:08:47 [INFO] app.services.email_service: [SMTP] email enviado a sebasxd236@gmail.com via smtp.gmail.com
+2026-07-05 20:22:52 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
+2026-07-05 20:22:58 [INFO] app.services.email_service: [SMTP] email enviado a sebasxd236@gmail.com via smtp.gmail.com
+2026-07-05 21:45:53 [INFO] app.services.email_service: EmailService: SMTP habilitado (host=smtp.gmail.com from=BUSTOKE <sebasandree729@gmail.com>)
+2026-07-05 21:46:02 [INFO] app.services.email_service: [SMTP] email enviado a sebasxd236@gmail.com via smtp.gmail.com

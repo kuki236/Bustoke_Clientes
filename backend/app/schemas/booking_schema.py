@@ -7,7 +7,7 @@ Define los DTOs de entrada y salida del endpoint transaccional
 
 from datetime import date
 from decimal import Decimal
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -68,6 +68,13 @@ class BookingProcessRequest(BaseModel):
         default=False,
         description="El comprador debe aceptar los términos y políticas "
         "antes de procesar el pago. Si es False, el backend rechaza con 422.",
+    )
+    mp_payment_id: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description="ID del Payment en Mercado Pago cuando el método es "
+        "'tarjeta'. Si está presente, se usa como referencia_transaccion "
+        "y se persiste el estado real del pago en `pagos.estado`.",
     )
 
     @field_validator("metodo_pago")

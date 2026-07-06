@@ -86,10 +86,19 @@ class BookingService:
                     )
 
             codigo_reserva = f"BK-{uuid.uuid4().hex[:10].upper()}"
-            referencia_transaccion = (
-                f"{payload.metodo_pago.upper()}-TXT-"
-                f"{secrets.token_hex(4).upper()}"
-            )
+            # FIX: si el frontend envió `mp_payment_id` (porque pasó por
+            # el Card Payment Brick y MP aprobó el cargo), lo usamos
+            # como referencia de la transacción en lugar del placeholder
+            # TARJETA-TXT-XXXXXX. Así el pago queda reconciliable con
+            # el panel de MP y con futuros webhooks/notificaciones.
+            mp_payment_id = getattr(payload, "mp_payment_id", None)
+            if payload.metodo_pago == "tarjeta" and mp_payment_id:
+                referencia_transaccion = f"MP-{int(mp_payment_id)}"
+            else:
+                referencia_transaccion = (
+                    f"{payload.metodo_pago.upper()}-TXT-"
+                    f"{secrets.token_hex(4).upper()}"
+                )
             email_payloads: list[dict] = []
 
             total = Decimal("0")

@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, useRef } from 'react'
 import { Calendar } from 'lucide-react'
 import { formatDateToDDMMYYYY } from '../api/travels'
 
@@ -61,23 +61,31 @@ export default function SearchField({
 
 function DateField({ label, value, placeholder, min, max, onChange, wrapperClasses }) {
   const inputId = useId()
+  const inputRef = useRef(null)
 
-  const handleInputClick = (e) => {
-    try {
-      e.target.showPicker()
-    } catch (err) {
-      console.warn('showPicker no soportado o bloqueado', err)
-    }
-  }
-
-  const handleInputFocus = (e) => {
-    const input = e.target
-    if (typeof input.showPicker !== 'function') return
+  const tryOpenPicker = (input) => {
+    if (!input || typeof input.showPicker !== 'function') return
     try {
       input.showPicker()
     } catch (err) {
-      console.warn('showPicker no soportado o bloqueado', err)
+      // FIX showPicker NotAllowedError:
+      // `showPicker()` requiere un "transient activation" (gesto del
+      // usuario) y algunos navegadores (Firefox ETP, Brave Shields,
+      // Safari ITP) lo bloquean cuando el input está envuelto en un
+      // contenedor con `opacity: 0` o dentro de un stacking context.
+      // El input sigue siendo clickeable: cuando el usuario hace click
+      // el navegador abre el picker de fecha de forma nativa, así que
+      // este error NO afecta la funcionalidad, solo lo silenciamos
+      // para no asustar al usuario con un NotAllowedError en consola.
     }
+  }
+
+  const handleClick = (e) => {
+    tryOpenPicker(e.currentTarget)
+  }
+
+  const handleMouseDown = (e) => {
+    tryOpenPicker(e.currentTarget)
   }
 
   return (
@@ -87,7 +95,7 @@ function DateField({ label, value, placeholder, min, max, onChange, wrapperClass
       </label>
       <div className="relative flex items-center gap-2 min-w-0 rounded-md focus-within:ring-2 focus-within:ring-blue-500/40">
         <span
-          className={`font-medium truncate ${
+          className={`font-medium truncate pointer-events-none ${
             value ? 'text-neutral-900' : 'text-neutral-400'
           }`}
         >
@@ -97,13 +105,14 @@ function DateField({ label, value, placeholder, min, max, onChange, wrapperClass
         </span>
         <Calendar className="w-4 h-4 text-neutral-500 shrink-0 ml-auto pointer-events-none" />
         <input
+          ref={inputRef}
           id={inputId}
           type="date"
           value={value || ''}
           min={min}
           max={max}
-          onClick={handleInputClick}
-          onFocus={handleInputFocus}
+          onClick={handleClick}
+          onMouseDown={handleMouseDown}
           onChange={(event) => onChange?.(event.target.value)}
           aria-label={label}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"

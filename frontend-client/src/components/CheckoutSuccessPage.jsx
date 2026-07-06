@@ -13,6 +13,19 @@ import BottomNav from './BottomNav'
 import Alert from './Alert'
 import { useAuth } from '../context/AuthContext'
 
+function getBoletoValidationUrl() {
+  try {
+    const fromEnv = import.meta.env.VITE_API_BASE_URL
+    if (fromEnv) return fromEnv.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
+  } catch {
+    // ignore
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin.replace(/\/+$/, '')
+  }
+  return 'http://localhost:8000'
+}
+
 const DEFAULT_DATE = '15/06/2026'
 const PAYMENT_METHOD_LABEL = {
   yape: 'Yape / Plin',
@@ -57,7 +70,7 @@ function QrBlock({ value }) {
       aria-label={`Código QR ${value}`}
     >
       <QRCodeSVG
-        value={`http://192.168.1.50:8000/v1/boletos/validar/${value}`}
+        value={`${getBoletoValidationUrl()}/v1/boletos/validar/${value}`}
         size={112}
         className="p-1 bg-white rounded-md border border-slate-200"
       />

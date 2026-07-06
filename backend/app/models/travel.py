@@ -48,6 +48,16 @@ class Viaje(Base):
             "fecha_hora_salida",
             "estado",
         ),
+        # PERFORMANCE: índice compuesto para el patrón principal de
+        # búsqueda (RF-03). El WHERE filtra por fecha (rango) + estado
+        # + JOIN a rutas por id_ruta. Con este índice el planner puede
+        # hacer un range scan por fecha y luego filtrar.
+        Index(
+            "idx_viajes_fecha_ruta",
+            "fecha_hora_salida",
+            "id_ruta",
+            "estado",
+        ),
         Index("fk_viajes_ruta", "id_ruta"),
         Index("fk_viajes_bus", "id_bus"),
         Index("fk_viajes_chofer", "id_chofer"),

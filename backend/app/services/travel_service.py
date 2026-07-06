@@ -2,8 +2,11 @@
 Servicio de Viajes: implementa la búsqueda B2C (RF-03, RF-04) y el
 cálculo de cupos en tiempo real (RF-05).
 
-Los filtros de búsqueda (precio, agencia, tipo de servicio, turno)
-se aplican en la capa de repositorio, **directamente en SQL**.
+PERFORMANCE: la búsqueda se delega al método
+`TravelRepository.search_with_aggregates()` que ejecuta UNA sola query
+SQL con todas las agregaciones (asientos_libres + tipos_asiento). Antes
+se hacían 1 + 2N queries (N = viajes encontrados), lo que con Neon
+añadía 2-3 segundos innecesarios.
 """
 
 from datetime import date
@@ -36,8 +39,8 @@ class TravelService:
     ) -> List[ViajeBusquedaResponse]:
         """
         Busca viajes disponibles para una ruta + fecha con filtros
-        opcionales, y calcula en tiempo real la cantidad de asientos
-        libres por viaje.
+        opcionales. Una sola query SQL agrega los asientos libres y
+        los tipos de servicio por viaje.
 
         Args:
             id_terminal_origen: terminal de partida (se expande a la
@@ -56,7 +59,7 @@ class TravelService:
         Returns:
             Lista de `ViajeBusquedaResponse` con `asientos_libres`.
         """
-        viajes = self.travels.search(
+        rows = self.travels.search_with_aggregates(
             id_terminal_origen=id_terminal_origen,
             id_terminal_destino=id_terminal_destino,
             fecha_salida=fecha_salida,
@@ -67,33 +70,4 @@ class TravelService:
             tipo_servicio=tipo_servicio,
             turno=turno,
         )
-
-        results: List[ViajeBusquedaResponse] = []
-        for v in viajes:
-            libres = self.travels.count_free_seats(
-                viaje_id=v.id_viaje,
-                id_bus=v.id_bus,
-            )
-
-            tipos_asiento = self.travels.list_tipos_asiento_by_bus(v.id_bus)
-
-            ruta = v.ruta
-            results.append(
-                ViajeBusquedaResponse(
-                    id_viaje=v.id_viaje,
-                    id_ruta=v.id_ruta,
-                    id_bus=v.id_bus,
-                    id_agencia=ruta.id_agencia,
-                    terminal_origen=ruta.terminal_origen.nombre,
-                    terminal_destino=ruta.terminal_destino.nombre,
-                    fecha_hora_salida=v.fecha_hora_salida,
-                    fecha_hora_llegada=v.fecha_hora_llegada,
-                    estado=v.estado,
-                    rampa_embarque=v.rampa_embarque,
-                    precio_base=ruta.tarifa_base,
-                    asientos_libres=libres,
-                    tipos_asiento=tipos_asiento,
-                )
-            )
-
-        return results
+        return [ViajeBusquedaResponse(**row) for row in rows]
