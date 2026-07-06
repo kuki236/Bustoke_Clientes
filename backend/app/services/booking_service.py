@@ -44,10 +44,7 @@ class BookingService:
            omite sin fallar la compra.
         """
         with self.db.begin():
-            # FIX BUG-111: rechazar checkout si el comprador no aceptó
-            # los términos y políticas. Antes el server_default='true'
-            # marcaba TODOS los boletos como aceptados sin importar
-            # el checkbox del frontend.
+# FIX BUG-111: rechazar checkout si el comprador no aceptó
             if not getattr(payload, "acepto_terminos_politicas", False):
                 raise ValueError(
                     "Debes aceptar los términos y políticas para continuar."
@@ -86,10 +83,15 @@ class BookingService:
                     )
 
             codigo_reserva = f"BK-{uuid.uuid4().hex[:10].upper()}"
-            referencia_transaccion = (
-                f"{payload.metodo_pago.upper()}-TXT-"
-                f"{secrets.token_hex(4).upper()}"
-            )
+# FIX: si el frontend envió `mp_payment_id` (porque pasó por
+            mp_payment_id = getattr(payload, "mp_payment_id", None)
+            if payload.metodo_pago == "tarjeta" and mp_payment_id:
+                referencia_transaccion = f"MP-{int(mp_payment_id)}"
+            else:
+                referencia_transaccion = (
+                    f"{payload.metodo_pago.upper()}-TXT-"
+                    f"{secrets.token_hex(4).upper()}"
+                )
             email_payloads: list[dict] = []
 
             total = Decimal("0")

@@ -193,9 +193,8 @@ function formatPriceLabel(pricesByType) {
 function resolveFloorTitle(floor, seats) {
   const baseLabel = FLOOR_LABELS[floor] || `Piso ${floor}`
   const serviceType = resolveServiceTypeForFloor(seats)
-  // FIX bug UX: si el piso tiene tipos mixtos (Normal + VIP), el
-  // desglose de precios se muestra en el subheader del piso (abajo
-  // del título), no acá, para no hacer el título demasiado largo.
+// FIX bug UX: si el piso tiene tipos mixtos (Normal + VIP), el
+
   return serviceType ? `${baseLabel} (${serviceType})` : baseLabel
 }
 
@@ -390,10 +389,8 @@ function BusLayout({ seats, floor, selectedIds, busyIds, onToggle }) {
 }
 
 function Legend({ showBlocked = true }) {
-  // FIX bug UX: el precio del VIP (y de cualquier tipo) se muestra
-  // en el subheader de cada piso, no acá. La leyenda solo cubre
-  // los ESTADOS visuales (libre/ocupado/bloqueado/seleccionado) para
-  // no duplicar información y mantener la barra compacta.
+// FIX bug UX: el precio del VIP (y de cualquier tipo) se muestra
+
   const items = [
     { label: 'Libre', swatch: 'bg-white border-blue-600' },
     { label: 'Ocupado', swatch: 'bg-red-600 border-red-600' },
@@ -655,27 +652,15 @@ export default function SeatSelectionPage() {
     }
   }, [selectedIds, idViaje, sessionToken, currentUserId])
 
-  // FIX BUG-049/050/051: cleanup unificado. Hay 3 eventos de cierre
-  // que tenemos que cubrir:
-  //   1. `pagehide` + `beforeunload` → `navigator.sendBeacon` (única
-  //      API garantizada en cierre de pestaña)
-  //   2. React unmount normal (navigate('/checkout'), navigate(-1) por
-  //      código) → `releaseSeatRequest` async normal con await
-  //   3. F5 (reload) → `sendBeacon` cubre el caso porque `pagehide`
-  //      se dispara antes de que la pestaña se destruya
-  //
-  // Para evitar doble-release, marcamos `beaconFiredRef` después de
-  // enviar el beacon; el cleanup async solo se ejecuta si el beacon
-  // NO se disparó.
+// FIX BUG-049/050/051: cleanup unificado. Hay 3 eventos de cierre
+
   const beaconFiredRef = useRef(false)
   const selectedIdsRef = useRef(selectedIds)
   const idViajeRef = useRef(idViaje)
   const sessionTokenRef = useRef(sessionToken)
   const currentUserIdRef = useRef(currentUserId)
-  // FIX BUG checkout "Algunos asientos no tienen un bloqueo activo":
-  // marca que la siguiente navegación es hacia /checkout, así el cleanup
-  // de unmount NO libera los holds (los necesitamos vivos en el
-  // CheckoutPage para que /v1/bookings/process los encuentre).
+// FIX BUG checkout "Algunos asientos no tienen un bloqueo activo":
+
   const navigatingToCheckoutRef = useRef(false)
 
   useEffect(() => {
@@ -719,11 +704,8 @@ export default function SeatSelectionPage() {
       // Si el beacon YA se disparó (caso BACK / F5), no duplicar
       // requests por el cleanup async.
       if (beaconFiredRef.current) return
-      // FIX checkout 409: si el unmount se debe a que vamos a
-      // /checkout, NO liberamos los holds — los necesitamos activos
-      // para que POST /v1/bookings/process los encuentre. El
-      // CheckoutPage los liberará al expirar (su propio timer) o al
-      // cancelar / volver.
+// FIX checkout 409: si el unmount se debe a que vamos a
+
       if (navigatingToCheckoutRef.current) return
       const holds = selectedIdsRef.current
       if (!holds || holds.length === 0) return
@@ -922,10 +904,8 @@ export default function SeatSelectionPage() {
       // ignore (modo privado sin storage)
     }
 
-    // FIX checkout 409: marca la navegación hacia /checkout ANTES de
-    // navigate() para que el cleanup de unmount del SeatSelectionPage
-    // NO libere los holds por accidente (los necesitamos vivos en el
-    // CheckoutPage para que /v1/bookings/process los encuentre).
+// FIX checkout 409: marca la navegación hacia /checkout ANTES de
+
     navigatingToCheckoutRef.current = true
 
     navigate('/checkout', {
@@ -966,9 +946,8 @@ export default function SeatSelectionPage() {
   )
   const priceLabel = formatPriceLabel(pricesByType)
   const floorPrice = useMemo(() => {
-    // FIX bug UX: si el piso tiene precios mixtos, usamos el
-    // mínimo (sigue siendo útil para mostrar "desde S/ X"). El
-    // header `priceLabel` muestra el desglose completo.
+// FIX bug UX: si el piso tiene precios mixtos, usamos el
+
     const list = grouped.get(Number(activeFloor)) || []
     if (list.length === 0) return precioBase
     const min = list.reduce(
@@ -1050,9 +1029,8 @@ export default function SeatSelectionPage() {
               ))}
             </div>
           ) : (
-            // FIX bug visual: misma corrección para el grid renderizado.
-            // Si hay 1 piso, el contenedor se centra y limita su ancho
-            // (md:max-w-md) para evitar el hueco a la derecha.
+// FIX bug visual: misma corrección para el grid renderizado.
+
             <div
               className={`grid gap-8 ${
                 floors.length > 1 ? 'md:grid-cols-2' : 'md:grid-cols-1 md:max-w-md md:mx-auto'

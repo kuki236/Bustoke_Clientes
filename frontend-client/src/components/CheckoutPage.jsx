@@ -1,10 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Clock, CreditCard, Smartphone, UserCircle2, X } from 'lucide-react'
 import Navbar from './Navbar'
 import BottomNav from './BottomNav'
 import Alert from './Alert'
+import LocalCardPaymentForm from './LocalCardPaymentForm'
 import { processBookingRequest } from '../api/bookings'
+import { createCardPayment } from '../api/payments'
 import { useAuth } from '../context/AuthContext'
 
 const DOC_TYPES = ['DNI', 'CE', 'Pasaporte']
@@ -14,6 +23,14 @@ const SEAT_SESSION_TOKEN_KEY = 'bustoke_seat_session_token'
 const CHECKOUT_SEATS_STORAGE_KEY = 'bustoke_checkout_seats_full'
 const RESERVATION_SECONDS = 600
 const ALERT_THRESHOLD_SECONDS = 120
+const USE_LOCAL_CARD_FORM = (() => {
+  try {
+    return import.meta.env.VITE_USE_LOCAL_CARD_FORM !== 'false'
+  } catch {
+    return true
+  }
+})()
+const MERCADOPAGO_PUBLIC_KEY = 'TEST-88efe7f4-0a0c-4126-b47c-f4318c4fa72f'
 
 function formatTimeLeft(seconds) {
   const total = Math.max(0, Number(seconds) || 0)
@@ -126,6 +143,15 @@ function formatSeat(seatId) {
   return seatId.split('-').slice(1).join('-')
 }
 
+function buildExternalReference({ idViaje, tokenSesion, passengersCount }) {
+  // Lo usa Mercado Pago como `external_reference` para reconciliar
+  // el pago con la reserva. Formato: BOOKING:<idViaje>:<token>:<pax>
+  const id = idViaje ?? 'NA'
+  const tok = tokenSesion ? String(tokenSesion).slice(0, 40) : 'NA'
+  const n = Number(passengersCount) || 0
+  return `BOOKING:${id}:${tok}:${n}`
+}
+
 function getEmptyPassenger(seat) {
   return {
     seat,
@@ -140,24 +166,9 @@ function getEmptyPassenger(seat) {
 
 function getEmptyBuyer() {
   return {
-    docType: DEFAULT_DOC_TYPE,
-    docNumber: '',
-    names: '',
-    paternalSurname: '',
-    maternalSurname: '',
     email: '',
+    fullName: '',
   }
-}
-
-function normalizeDocType(raw) {
-  if (!raw) return DEFAULT_DOC_TYPE
-  const value = String(raw).trim().toUpperCase()
-  if (value === 'DNI' || value === '1') return 'DNI'
-  if (value === 'PASAPORTE' || value === '2') return 'Pasaporte'
-  if (value === 'CE' || value === 'CARNET DE EXTRANJERIA' || value === '3') {
-    return 'CE'
-  }
-  return DEFAULT_DOC_TYPE
 }
 
 function splitFullName(fullName) {
@@ -184,44 +195,33 @@ function splitFullName(fullName) {
 
 function buyerFromUser(user) {
   if (!user) return getEmptyBuyer()
-  const explicitNames = [
-    user.nombres,
-    user.names,
-    user.name,
-  ].find((v) => v && String(v).trim())
-  const split = explicitNames
-    ? { names: String(explicitNames).trim(), paternalSurname: '', maternalSurname: '' }
-    : splitFullName(
-        [user.nombre, user.full_name, user.fullName]
-          .find((v) => v && String(v).trim()) || '',
-      )
-  const paternal = [
-    user.apellido_paterno,
-    user.apellidoPaterno,
-    user.paternal_surname,
-    user.apellidoPaternoRaw,
-  ].find((v) => v && String(v).trim())
-  const maternal = [
-    user.apellido_materno,
-    user.apellidoMaterno,
-    user.maternal_surname,
-    user.apellidoMaternoRaw,
-  ].find((v) => v && String(v).trim())
   return {
-    docType: normalizeDocType(
-      user.tipo_documento ?? user.tipoDocumento ?? user.doc_type,
-    ),
-    docNumber: String(
-      user.dni ??
-        user.numero_documento ??
-        user.numeroDocumento ??
-        user.doc_number ??
-        '',
-    ).trim(),
-    names: split.names,
-    paternalSurname: String(paternal || '').trim() || split.paternalSurname,
-    maternalSurname: String(maternal || '').trim() || split.maternalSurname,
     email: String(user.email ?? user.correo ?? '').trim(),
+  }
+}
+
+function passengerFromUser(user) {
+  if (!user) return null
+  const pick = (...keys) => {
+    for (const k of keys) {
+      if (user[k] !== undefined && user[k] !== null && user[k] !== '') {
+        return user[k]
+      }
+    }
+    return ''
+  }
+  return {
+    docType: pick('docType', 'tipoDocumento', 'tipo_documento') || 'DNI',
+    docNumber: String(
+      pick('docNumber', 'numeroDocumento', 'numero_documento'),
+    ).trim(),
+    names: String(pick('names', 'nombres')).trim(),
+    paternalSurname: String(
+      pick('paternalSurname', 'apellidoPaterno', 'apellido_paterno'),
+    ).trim(),
+    maternalSurname: String(
+      pick('maternalSurname', 'apellidoMaterno', 'apellido_materno'),
+    ).trim(),
   }
 }
 
@@ -278,20 +278,45 @@ function buildBookingPayload({
   seatIdMap,
   paymentMethod,
   acceptedTerms = false,
+  mpPaymentId = null,
+  cardFormData = null,
+  buyerIsPax1 = true,
 }) {
   const metodoPago = PAYMENT_METHOD_TO_BACKEND[paymentMethod] || 'tarjeta'
+  const firstPax = passengers[0] || {}
+
+// FIX UX: derivar los datos de identidad del comprador sin
+
+  let docType, docNumber, names, paternalSurname, maternalSurname
+
+  if (buyerIsPax1) {
+    docType = firstPax.docType || 'DNI'
+    docNumber = String(firstPax.docNumber || '').trim()
+    names = String(firstPax.names || '').trim()
+    paternalSurname = String(firstPax.paternalSurname || '').trim()
+    maternalSurname = String(firstPax.maternalSurname || '').trim()
+  } else {
+    // El DNI lo trae el Brick (payer.identification). El nombre lo
+    // trae buyer.fullName (un solo campo, se parte en nombres/apellidos).
+    const idType = cardFormData?.payer?.identification?.type
+    const idNumber = cardFormData?.payer?.identification?.number
+    docType = idType || 'DNI'
+    docNumber = String(idNumber || '').trim()
+    const split = splitFullName(buyer.fullName || '')
+    names = split.names
+    paternalSurname = split.paternalSurname
+    maternalSurname = split.maternalSurname
+  }
+
   return {
     token_sesion: tokenSesion,
     id_viaje: idViaje,
     comprador: {
-      tipo_documento: buyer.docType,
-      numero_documento: String(buyer.docNumber || '').trim(),
-      nombres: String(buyer.names || '').trim(),
-      apellidos:
-        `${String(buyer.paternalSurname || '').trim()} ${String(
-          buyer.maternalSurname || '',
-        ).trim()}`.trim(),
-      email: buyer.email,
+      tipo_documento: docType,
+      numero_documento: docNumber,
+      nombres: names,
+      apellidos: `${paternalSurname} ${maternalSurname}`.trim(),
+      email: String(buyer.email || '').trim(),
     },
     pasajeros: passengers.map((pax) => ({
       id_asiento: seatIdMap.get(pax.seat),
@@ -303,19 +328,21 @@ function buildBookingPayload({
       fecha_nacimiento: pax.fechaNacimiento,
     })),
     metodo_pago: metodoPago,
-    // FIX BUG-111: enviar explícitamente la aceptación de términos.
-    // El backend persiste el valor real; antes siempre quedaba `true`
-    // por el server_default aunque el usuario NO hubiera marcado.
+// FIX BUG-111: enviar explícitamente la aceptación de términos.
+
     acepto_terminos_politicas: Boolean(acceptedTerms),
+    // ID del Payment de Mercado Pago cuando el método es tarjeta.
+    // El backend lo usa como referencia_transaccion ("MP-<id>").
+    mp_payment_id: mpPaymentId || undefined,
   }
 }
 
-function validateCheckoutForm({ buyer, passengers }) {
+function validateCheckoutForm({ buyer, passengers, buyerIsPax1 = true }) {
   const errors = []
-  if (!buyer.docNumber?.trim()) errors.push('Número de documento del comprador')
-  if (!buyer.names?.trim()) errors.push('Nombres del comprador')
-  if (!buyer.paternalSurname?.trim()) errors.push('Apellido paterno del comprador')
   if (!buyer.email?.trim()) errors.push('Correo del comprador')
+  if (!buyerIsPax1 && !buyer.fullName?.trim()) {
+    errors.push('Nombre completo del titular del pago')
+  }
 
   passengers.forEach((pax, i) => {
     const label = `Pasajero ${i + 1} (asiento ${pax.seat})`
@@ -579,6 +606,8 @@ function PassengerAccordionItem({
             value={passenger.fechaNacimiento}
             onChange={(v) => update('fechaNacimiento', v)}
             max="2010-12-31"
+// FIX UX: solo bloqueamos la fecha de nacimiento si el
+
           />
         </div>
       </div>
@@ -597,15 +626,13 @@ function BuyerBlock({
   const update = (field, value) => {
     onChange({ ...buyer, [field]: value })
   }
-  const lockFromPax1 = buyerIsPax1
-  const lockFromAuth = Boolean(buyerReadOnlyReason)
-  const allLocked = lockFromPax1 || lockFromAuth
+  const emailLocked = isLoggedIn && Boolean(buyer.email)
 
   return (
     <section className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
         <h3 className="text-base font-semibold text-neutral-900">
-          Datos del comprador
+          Email de contacto
         </h3>
         {isLoggedIn && (
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-full">
@@ -627,50 +654,6 @@ function BuyerBlock({
         <p className="text-xs text-neutral-500 -mt-2">{buyerReadOnlyReason}</p>
       )}
 
-      <div className="grid sm:grid-cols-2 gap-4">
-        <SelectField
-          id="buyer-docType"
-          label="Tipo de Documento"
-          value={buyer.docType}
-          onChange={(v) => update('docType', v)}
-          options={DOC_TYPES}
-          disabled={allLocked}
-        />
-        <InputField
-          id="buyer-docNumber"
-          label="Número de Documento"
-          value={buyer.docNumber}
-          onChange={(v) => update('docNumber', v)}
-          placeholder="Ej. 74872562"
-          disabled={allLocked}
-        />
-      </div>
-      <InputField
-        id="buyer-names"
-        label="Nombres"
-        value={buyer.names}
-        onChange={(v) => update('names', v)}
-        placeholder="Ej. Juan Carlos"
-        disabled={allLocked}
-      />
-      <div className="grid sm:grid-cols-2 gap-4">
-        <InputField
-          id="buyer-paternal"
-          label="Apellido Paterno"
-          value={buyer.paternalSurname}
-          onChange={(v) => update('paternalSurname', v)}
-          placeholder="Ej. Pérez"
-          disabled={allLocked}
-        />
-        <InputField
-          id="buyer-maternal"
-          label="Apellido Materno"
-          value={buyer.maternalSurname}
-          onChange={(v) => update('maternalSurname', v)}
-          placeholder="Ej. Mendoza"
-          disabled={allLocked}
-        />
-      </div>
       <InputField
         id="buyer-email"
         label="Correo Electrónico"
@@ -678,15 +661,24 @@ function BuyerBlock({
         value={buyer.email}
         onChange={(v) => update('email', v)}
         placeholder="correo@ejemplo.com"
-        // FIX bug "no puedo editar el email cuando el comprador es
-        // Pasajero 1": el email NO es un dato personal del comprador
-        // (que ya viene de Pax 1) sino el `email_contacto` del
-        // boleto (a dónde se manda el PDF). Por eso solo se bloquea
-        // cuando el usuario está autenticado (cuyo email viene del
-        // perfil y no debería cambiar para ESTA compra), pero sigue
-        // siendo editable cuando es guest.
-        disabled={lockFromAuth}
+        disabled={emailLocked}
       />
+
+      {!buyerIsPax1 && (
+        <>
+          <InputField
+            id="buyer-fullName"
+            label="Nombre completo del titular del pago"
+            value={buyer.fullName || ''}
+            onChange={(v) => update('fullName', v)}
+            placeholder="Ej. Juan Carlos Pérez Mendoza"
+          />
+          <p className="text-xs text-neutral-500 -mt-1">
+            Su DNI se tomará de la sección de la tarjeta de crédito al
+            momento de pagar.
+          </p>
+        </>
+      )}
     </section>
   )
 }
@@ -736,11 +728,8 @@ function PaymentOption({ option, selected, onSelect }) {
 }
 
 function SummaryCard({ trip, selectedSeats, total, date }) {
-  // FIX bug "Cannot read properties of null (reading 'origin')":
-  // cuando el usuario navega checkout → volver → seleccionar →
-  // checkout, el `trip` puede venir null/undefined desde el state
-  // de React Router. Hacemos destructuring defensivo con fallbacks
-  // para que el componente siempre renderice algo legible.
+// FIX bug "Cannot read properties of null (reading 'origin')":
+
   const safeTrip = trip && typeof trip === 'object' ? trip : {}
   const displaySeats = Array.isArray(selectedSeats)
     ? selectedSeats.map(formatSeat)
@@ -917,6 +906,234 @@ function PaymentMethodsCard({ paymentMethod, onSelectPayment }) {
   )
 }
 
+function CardPaymentBrickContainer({
+  amount,
+  payerEmail,
+  cardholderName,
+  externalReference,
+  onSubmit,
+  onError,
+  onReady,
+}) {
+  const reactId = useId()
+// FIX mobile/PC: `brickNonce` se incluye en el `containerId` para
+
+  const [brickNonce, setBrickNonce] = useState(0)
+  // FIX mobile/PC: estado de error expuesto en UI para mostrar un
+  // botón "Reintentar" cuando los Secure Fields fallan.
+  const [loadError, setLoadError] = useState(false)
+  const containerId = `cardPaymentBrick_container_${reactId.replace(
+    /[^a-zA-Z0-9_-]/g,
+    '',
+  )}_${brickNonce}`
+  const containerRef = useRef(null)
+  const controllerRef = useRef(null)
+// Guardamos los callbacks en refs para que el `useEffect` no se
+
+  const onSubmitRef = useRef(onSubmit)
+  const onErrorRef = useRef(onError)
+  const onReadyRef = useRef(onReady)
+// FIX Bug MercadoPago Brick + React 18+ StrictMode:
+
+  const initializedRef = useRef(false)
+
+  useEffect(() => {
+    onSubmitRef.current = onSubmit
+    onErrorRef.current = onError
+    onReadyRef.current = onReady
+  }, [onSubmit, onError, onReady])
+
+  useEffect(() => {
+    if (initializedRef.current) return
+    initializedRef.current = true
+    setLoadError(false)
+    if (typeof window === 'undefined' || !window.MercadoPago) {
+      console.error(
+        '[MP] SDK de Mercado Pago no cargada. Verifica el <script> en index.html.',
+      )
+      setLoadError(true)
+      initializedRef.current = false
+      return
+    }
+
+// FIX brick vacío (sin console message): ELIMINADO el setTimeout
+
+    try {
+      const mp = new window.MercadoPago(MERCADOPAGO_PUBLIC_KEY, {
+        locale: 'es-PE',
+// FIX submit error: dejamos `advancedFraudPrevention` en su
+
+      })
+      const bricksBuilder = mp.bricks()
+
+      const settings = {
+        initialization: {
+          amount: Number(amount) || 0,
+          payer: {
+            email: payerEmail || '',
+// FIX UX: pre-rellenamos el nombre del titular con el
+
+            ...(cardholderName ? { firstName: cardholderName } : {}),
+          },
+        },
+        customization: {
+          visual: {
+            style: { theme: 'default' },
+          },
+          paymentMethods: {
+            maxInstallments: 1,
+          },
+        },
+        callbacks: {
+          onReady: () => {
+            onReadyRef.current?.()
+          },
+          onSubmit: async (cardFormData) => {
+            try {
+              const enriched = {
+                ...cardFormData,
+                transactionAmount: Number(amount) || 0,
+                externalReference,
+              }
+              await onSubmitRef.current?.(enriched)
+            } catch (err) {
+              console.error('[MP] onSubmit error', err)
+              throw err
+            }
+          },
+          onError: (error) => {
+// FIX debug: extraemos todas las propiedades del error,
+
+            const detail = {
+              cause: error?.cause,
+              message: error?.message,
+              type: error?.type,
+              allKeys: error ? Object.keys(error) : [],
+            }
+            console.error('[MP] onError DETALLE', detail)
+
+// FIX get_card_bin_payment_methods_failed:
+
+            if (
+              error?.cause === 'get_card_bin_payment_methods_failed' ||
+              error?.message === 'get_card_bin_payment_methods_failed'
+            ) {
+              console.warn(
+                '[MP] BIN lookup falló (no crítico). El usuario puede ' +
+                  'igual intentar pagar. Causa probable: sandbox de MP ' +
+                  'inestable o tarjeta no reconocida.',
+              )
+              return
+            }
+
+// FIX UX: si MP reporta este error específico,
+
+            if (error?.cause === 'secure_fields_card_token_creation_failed') {
+              const hint =
+                'No pudimos tokenizar la tarjeta. Causas comunes: ' +
+                '(1) un bloqueador de contenido (uBlock, AdGuard, ' +
+                'Privacy Badger) está bloqueando el iframe de pago; ' +
+                '(2) la tarjeta no es de prueba del sandbox; ' +
+                '(3) los campos no están completos. ' +
+                'Desactiva bloqueadores para checkout.bustoke y reintenta.'
+              onErrorRef.current?.({
+                ...error,
+                userMessage: hint,
+              })
+              return
+            }
+            onErrorRef.current?.(error)
+          },
+        },
+      }
+
+      bricksBuilder
+        .create('cardPayment', containerId, settings)
+        .then((controller) => {
+          controllerRef.current = controller
+        })
+        .catch((err) => {
+          // FIX mobile/PC: si falla la creación, exponemos el error
+          // en UI para que el usuario pueda reintentar.
+          console.error('[MP] No se pudo crear el Card Payment Brick', err)
+          initializedRef.current = false
+          setLoadError(true)
+        })
+    } catch (err) {
+// FIX mobile/PC: capturamos errores SÍNCRONOS (inicialización
+
+      console.error('[MP] Error síncrono al crear el Brick', err)
+      initializedRef.current = false
+      setLoadError(true)
+    }
+
+// NO cleanup aquí. El Brick se desmonta implícitamente cuando
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [containerId])
+
+// FIX mobile: handler de retry que fuerza un re-mount limpio
+
+  const handleRetry = useCallback(() => {
+    if (controllerRef.current) {
+      try {
+        controllerRef.current.unmount()
+      } catch (e) {
+        // ignorar
+      }
+      controllerRef.current = null
+    }
+    initializedRef.current = false
+    setLoadError(false)
+    setBrickNonce((n) => n + 1)
+  }, [])
+
+  return (
+    <div className="flex flex-col gap-3">
+      {loadError ? (
+        <div
+          className="border border-amber-300 bg-amber-50 rounded-xl p-4 flex flex-col gap-3"
+          role="alert"
+        >
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-semibold text-amber-900">
+              No se pudo cargar el formulario de pago
+            </p>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              Esto puede deberse a un bloqueador de contenido, a la
+              extensión de tu navegador o a un problema temporal del
+              proveedor.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleRetry}
+            className="self-start px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 transition-colors"
+          >
+            Reintentar carga
+          </button>
+        </div>
+      ) : null}
+      <div
+        ref={containerRef}
+        id={containerId}
+        className="mercadopago-brick-container"
+        data-testid="card-payment-brick"
+        style={{
+          minHeight: loadError ? 0 : 350,
+// FIX mobile tap en vencimiento / CVC: MP inyecta iframes
+
+          position: 'relative',
+          zIndex: 1,
+// FIX mobile: en iOS Safari, los iframes dentro de un
+
+          touchAction: 'manipulation',
+        }}
+      />
+    </div>
+  )
+}
+
 function PaymentPanel({
   paymentMethod,
   onSelectPayment,
@@ -926,7 +1143,14 @@ function PaymentPanel({
   onPay,
   isProcessing = false,
   payError = null,
+  payerEmail = '',
+  onPayerEmailChange = () => {},
+  cardholderName = '',
+  externalReference = '',
+  onBrickReady = () => {},
+  onBrickError = () => {},
 }) {
+  const isCard = paymentMethod === 'card'
   return (
     <div className="flex flex-col gap-6">
       <PaymentMethodsCard
@@ -943,20 +1167,54 @@ function PaymentPanel({
           />
         </div>
         {payError && <Alert variant="error">{payError}</Alert>}
-        <button
-          type="button"
-          onClick={onPay}
-          disabled={!acceptedTerms || isProcessing}
-          className={`w-full py-3 rounded-xl font-medium transition-colors ${
-            acceptedTerms && !isProcessing
-              ? 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
-          }`}
-        >
-          {isProcessing
-            ? 'Procesando pago seguro...'
-            : `Pagar S/ ${total.toFixed(2)}`}
-        </button>
+
+        {isCard ? (
+          isProcessing ? (
+            <div
+              className="w-full py-3 rounded-xl font-medium bg-neutral-200 text-neutral-600 text-center"
+              role="status"
+              aria-live="polite"
+            >
+              Procesando pago con Mercado Pago...
+            </div>
+          ) : USE_LOCAL_CARD_FORM ? (
+            <LocalCardPaymentForm
+              amount={total}
+              payerEmail={payerEmail}
+              onEmailChange={onPayerEmailChange}
+              cardholderName={cardholderName}
+              externalReference={externalReference}
+              onSubmit={onPay}
+              onReady={onBrickReady}
+              onError={onBrickError}
+            />
+          ) : (
+            <CardPaymentBrickContainer
+              amount={total}
+              payerEmail={payerEmail}
+              cardholderName={cardholderName}
+              externalReference={externalReference}
+              onSubmit={onPay}
+              onReady={onBrickReady}
+              onError={onBrickError}
+            />
+          )
+        ) : (
+          <button
+            type="button"
+            onClick={onPay}
+            disabled={!acceptedTerms || isProcessing}
+            className={`w-full py-3 rounded-xl font-medium transition-colors ${
+              acceptedTerms && !isProcessing
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
+            }`}
+          >
+            {isProcessing
+              ? 'Procesando pago seguro...'
+              : `Pagar S/ ${total.toFixed(2)}`}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -975,11 +1233,8 @@ export default function CheckoutPage({
 }) {
   const location = useLocation()
   const navigate = useNavigate()
-  // NOTA: `location.state` es un objeto nuevo en cada render. Los
-  // useCallback que dependen de él se recrean también, pero el costo
-  // es despreciable para este componente (solo se ejecutan al hacer
-  // click). Antes había un useMemo aquí pero causaba un warning de
-  // ESLint peor; lo dejamos simple.
+// NOTA: `location.state` es un objeto nuevo en cada render. Los
+
   const stateData = location.state || {}
 
   const trip = stateData.trip ?? tripProp ?? null
@@ -1000,13 +1255,8 @@ export default function CheckoutPage({
     ? selectedSeatsFullFromState
     : selectedSeatsFullFromProps
 
-  // FIX bug "el hold no coincide con el asiento del booking": el
-  // fallback a sessionStorage puede traer datos de un test anterior
-  // con un id_asiento que ya no tiene hold activo. Lo aceptamos
-  // igual (es un fallback legítimo) pero logueamos claramente
-  // para que un 409 posterior sea fácil de debuggear — el
-  // developer verá en consola que el seatIdMap vino del
-  // sessionStorage y puede comparar con los holds en la BD.
+// FIX bug "el hold no coincide con el asiento del booking": el
+
   if (selectedSeatsFull.length === 0) {
     const fallbackSeats = readCheckoutSeatsFromStorage()
     if (fallbackSeats.length > 0) {
@@ -1033,11 +1283,6 @@ export default function CheckoutPage({
     () => buildSeatIdMap(selectedSeatsFull),
     [selectedSeatsFull],
   )
-  console.log('[Checkout] seatIdMap', {
-    size: seatIdMap.size,
-    map: Array.from(seatIdMap.entries()),
-    selectedSeatsFull,
-  })
 
   useEffect(() => {
     if (selectedSeats.length === 0 || selectedSeatsFull.length === 0) {
@@ -1058,15 +1303,20 @@ export default function CheckoutPage({
     () => (isAuthenticated ? buyerFromUser(user) : getEmptyBuyer()),
     [isAuthenticated, user],
   )
+// FIX: datos del perfil que se copian a Pasajero 1 cuando el
+
+  const profilePassenger = useMemo(
+    () => (isAuthenticated ? passengerFromUser(user) : null),
+    [isAuthenticated, user],
+  )
   const hasProfileData = useMemo(() => {
-    if (!isAuthenticated) return false
+    if (!isAuthenticated || !profilePassenger) return false
     return Boolean(
-      profileBuyer.docNumber ||
-        profileBuyer.names ||
-        profileBuyer.paternalSurname ||
-        profileBuyer.email,
+      profilePassenger.docNumber ||
+        profilePassenger.names ||
+        profilePassenger.paternalSurname,
     )
-  }, [isAuthenticated, profileBuyer])
+  }, [isAuthenticated, profilePassenger])
   const [buyer, setBuyer] = useState(() =>
     isAuthenticated ? { ...profileBuyer } : getEmptyBuyer(),
   )
@@ -1077,7 +1327,7 @@ export default function CheckoutPage({
   const [expandedPax, setExpandedPax] = useState(() =>
     selectedSeats.length > 0 ? [0] : [],
   )
-  const [buyerIsPax1, setBuyerIsPax1] = useState(false)
+  const [buyerIsPax1, setBuyerIsPax1] = useState(true)
   const [useProfileForPax1, setUseProfileForPax1] = useState(false)
   const [timeLeft, setTimeLeft] = useState(
     selectedSeats.length > 0 ? RESERVATION_SECONDS : null,
@@ -1091,57 +1341,71 @@ export default function CheckoutPage({
     )
   }, [])
 
-  const handleToggleBuyerIsPax1 = useCallback(
-    (checked) => {
-      setBuyerIsPax1(checked)
-      if (checked && passengers[0]) {
-        setBuyer((prev) => ({
-          ...prev,
-          docType: passengers[0].docType || prev.docType,
-          docNumber: passengers[0].docNumber || '',
-          names: passengers[0].names || '',
-          paternalSurname: passengers[0].paternalSurname || '',
-          maternalSurname: passengers[0].maternalSurname || '',
-        }))
-      }
-    },
-    [passengers],
-  )
+  const handleToggleBuyerIsPax1 = useCallback((checked) => {
+    // FIX UX: el buyer ya no guarda doc/nombres; esos se derivan
+    // de Pasajero 1 en `handlePay`. Solo toggeleamos el flag.
+    setBuyerIsPax1(checked)
+  }, [])
 
   const handleToggleUseProfileForPax1 = useCallback(
     (checked) => {
       setUseProfileForPax1(checked)
-      if (checked && passengers[0]) {
+      if (checked && passengers[0] && profilePassenger) {
         const p0 = passengers[0]
         setPassengers((prev) =>
           prev.map((p, i) =>
             i === 0
               ? {
                   ...p,
-                  docType: profileBuyer.docType || p.docType,
-                  docNumber: profileBuyer.docNumber || p.docNumber,
-                  names: profileBuyer.names || p.names,
+                  docType: profilePassenger.docType || p.docType,
+                  docNumber: profilePassenger.docNumber || p.docNumber,
+                  names: profilePassenger.names || p.names,
                   paternalSurname:
-                    profileBuyer.paternalSurname || p.paternalSurname,
+                    profilePassenger.paternalSurname || p.paternalSurname,
                   maternalSurname:
-                    profileBuyer.maternalSurname || p.maternalSurname,
+                    profilePassenger.maternalSurname || p.maternalSurname,
+// fechaNacimiento NO se copia del perfil: el registro
+
                 }
               : p,
           ),
         )
         setExpandedPax((prev) => (prev.includes(0) ? prev : [...prev, 0]))
-        console.log(
-          '[Checkout] Datos de perfil copiados al Pasajero 1',
-          { p0Doc: p0.docNumber, profile: profileBuyer },
-        )
       }
     },
-    [passengers, profileBuyer],
+    [passengers, profilePassenger],
   )
 
   const buyerReadOnlyReason = isAuthenticated
     ? 'Estos datos vienen de tu perfil y se usarán para emitir el comprobante.'
     : null
+
+// FIX UX: nombre del titular de la tarjeta para pre-rellenar el Brick.
+
+  const resolveCardholderName = useCallback(() => {
+    if (buyerIsPax1) {
+      const p0 = passengers[0]
+      if (!p0) return ''
+      return [p0.names, p0.paternalSurname, p0.maternalSurname]
+        .filter(Boolean)
+        .join(' ')
+        .trim()
+    }
+    return String(buyer?.fullName || '').trim()
+  }, [buyerIsPax1, passengers, buyer])
+
+// FIX message_channel_error: memoizamos `externalReference` para
+
+  const externalReferenceValue = useMemo(
+    () =>
+      buildExternalReference({
+        idViaje: idViaje ?? (trip?.id ? Number(trip.id) : null),
+        tokenSesion: readSessionToken(),
+        passengersCount: passengers.length,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [idViaje, trip?.id, passengers.length],
+  )
 
   useEffect(() => {
     if (selectedSeats.length === 0) {
@@ -1187,16 +1451,8 @@ export default function CheckoutPage({
       return
     }
     if (idViaje) {
-      // FIX bug "Resumen de Compra muestra guiones":
-      // Antes navegaba al mapa de asientos SIN pasar el state.
-      // Eso borraba `trip`, `searchValues`, `origin`, `destination`,
-      // `company`, `departureTime` y `date` del location.state, y al
-      // re-entrar a checkout la pantalla los recibía como null.
-      //
-      // Reenviamos el state completo (campos explícitos para que
-      // ESLint no se queje de que `stateData` cambia en cada render)
-      // para que el flujo "checkout → volver → seleccionar más →
-      // checkout" preserve los datos del viaje original.
+// FIX bug "Resumen de Compra muestra guiones":
+
       navigate(`/viaje/${idViaje}/asientos`, {
         state: {
           trip,
@@ -1218,24 +1474,8 @@ export default function CheckoutPage({
     setPassengers((prev) => prev.map((p, i) => (i === index ? updated : p)))
   }
 
-  const handlePay = async () => {
-    const collectedSnapshot = {
-      passengers,
-      buyer,
-      paymentMethod,
-      selectedSeats,
-      selectedSeatsFull,
-      isProcessing,
-      acceptedTerms,
-    }
-    console.log('[Checkout] handlePay disparado', collectedSnapshot)
-
+  const handlePay = async (cardFormData = null) => {
     const tokenSesion = readSessionToken()
-    console.log('[Checkout] token_sesion recuperado de sessionStorage', {
-      key: SEAT_SESSION_TOKEN_KEY,
-      present: Boolean(tokenSesion),
-      tokenSesion,
-    })
 
     if (isProcessing) {
       console.warn('[Checkout] handlePay ignorado: ya hay un pago en proceso')
@@ -1247,6 +1487,9 @@ export default function CheckoutPage({
         '[Checkout] handlePay bloqueado: el usuario no aceptó los términos',
       )
       setPayError('Debes aceptar los términos y condiciones.')
+      // Cuando viene del Brick, lanzamos para que muestre error inline
+      // y no quede en estado "cargando" para siempre.
+      if (cardFormData) throw new Error('Debes aceptar los términos y condiciones.')
       return
     }
 
@@ -1258,18 +1501,19 @@ export default function CheckoutPage({
       setPayError(
         'Tu sesión de bloqueo expiró. Vuelve al mapa de asientos y reintenta.',
       )
+      if (cardFormData) throw new Error('Tu sesión de bloqueo expiró.')
       return
     }
 
-    const validationErrors = validateCheckoutForm({ buyer, passengers })
+    const validationErrors = validateCheckoutForm({ buyer, passengers, buyerIsPax1 })
     if (validationErrors.length > 0) {
       console.error(
         '[Checkout] Validación de formulario incompleta',
         { buyer, passengers, validationErrors },
       )
-      setPayError(
-        `Completa los campos obligatorios: ${validationErrors.join(', ')}.`,
-      )
+      const msg = `Completa los campos obligatorios: ${validationErrors.join(', ')}.`
+      setPayError(msg)
+      if (cardFormData) throw new Error(msg)
       return
     }
 
@@ -1286,9 +1530,9 @@ export default function CheckoutPage({
           selectedSeatsFull,
         },
       )
-      setPayError(
-        'No pudimos mapear los asientos con la reserva. Vuelve al mapa de asientos.',
-      )
+      const msg = 'No pudimos mapear los asientos con la reserva. Vuelve al mapa de asientos.'
+      setPayError(msg)
+      if (cardFormData) throw new Error(msg)
       return
     }
 
@@ -1296,8 +1540,55 @@ export default function CheckoutPage({
       idViaje ?? (trip?.id ? Number(trip.id) : null)
     if (!resolvedIdViaje) {
       console.error('[Checkout] idViaje no resuelto', { idViaje, trip })
-      setPayError('No se pudo identificar el viaje. Vuelve a los resultados.')
+      const msg = 'No se pudo identificar el viaje. Vuelve a los resultados.'
+      setPayError(msg)
+      if (cardFormData) throw new Error(msg)
       return
+    }
+
+    setIsProcessing(true)
+    setPayError(null)
+
+    let mpPaymentId = null
+    if (cardFormData) {
+      if (cardFormData.localPaymentId) {
+        mpPaymentId = cardFormData.localPaymentId
+      } else {
+        const buyerFullName = [
+          buyer.names,
+          buyer.paternalSurname,
+          buyer.maternalSurname,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .trim()
+        const enrichedCardData = {
+          ...cardFormData,
+          cardholderName: cardFormData.cardholderName || buyerFullName || undefined,
+          transactionAmount: Number(total) || 0,
+          externalReference:
+            cardFormData.externalReference ||
+            `BOOKING:${resolvedIdViaje}:${tokenSesion}:${passengers.length}`,
+        }
+
+        try {
+          const mpRes = await createCardPayment(enrichedCardData)
+          if (!mpRes.approved) {
+            const msg = mpRes.message || 'El pago fue rechazado por Mercado Pago.'
+            setPayError(msg)
+            throw new Error(msg)
+          }
+          mpPaymentId = mpRes.payment?.id || null
+        } catch (err) {
+          console.error('[Checkout] Error creando el pago en Mercado Pago', err)
+          const msg =
+            err?.message ||
+            'No pudimos comunicarnos con Mercado Pago. Intenta nuevamente.'
+          setPayError(msg)
+          setIsProcessing(false)
+          throw err
+        }
+      }
     }
 
     const payload = buildBookingPayload({
@@ -1308,6 +1599,9 @@ export default function CheckoutPage({
       seatIdMap,
       paymentMethod,
       acceptedTerms, // FIX BUG-111
+      mpPaymentId,
+      cardFormData,
+      buyerIsPax1,
     })
 
     console.log(
@@ -1319,10 +1613,6 @@ export default function CheckoutPage({
     setPayError(null)
     try {
       const result = await processBookingRequest(payload)
-      console.log(
-        '[Checkout] Respuesta 201 de /v1/bookings/process',
-        result,
-      )
 
       clearSessionToken()
       clearCheckoutSeatsStorage()
@@ -1349,31 +1639,33 @@ export default function CheckoutPage({
           err,
         },
       )
-      // FIX UX: cuando el backend devuelve 409 con un mensaje
-      // genérico como "Algunos asientos no tienen un bloqueo
-      // activo para esta sesión" o "El asiento X ya tiene un
-      // boleto activo", el usuario no sabe que probablemente
-      // una compra anterior completó pero la página de éxito
-      // crasheó (problema conocido en versiones viejas). Lo
-      // guiamos a verificar "Mis Viajes" antes de reintentar.
+// FIX UX: cuando el backend devuelve 409 con un mensaje
+
       const isConflict = err?.status === 409
       const lowerMessage = String(err?.message || '').toLowerCase()
       const isStale =
         lowerMessage.includes('ya tiene un boleto activo') ||
         lowerMessage.includes('bloqueo activo')
+      let msg
       if (isConflict && isStale) {
-        setPayError(
+        msg =
           'Uno o más asientos ya fueron vendidos. Esto puede pasar ' +
-            'si una compra anterior completó pero no pudiste ver la ' +
-            'confirmación. Revisa "Mis Viajes" para ver si ya tienes ' +
-            'estos boletos.',
-        )
+          'si una compra anterior completó pero no pudiste ver la ' +
+          'confirmación. Revisa "Mis Viajes" para ver si ya tienes ' +
+          'estos boletos.'
       } else {
-        setPayError(
+        msg =
           err?.message ||
-            'No pudimos procesar el pago. Intenta nuevamente en unos minutos.',
-        )
+          'No pudimos procesar el pago. Intenta nuevamente en unos minutos.'
       }
+      setPayError(msg)
+// Si el pago en MP ya fue aprobado y el booking falló, NO
+
+      if (mpPaymentId) {
+        msg += ` (Pago MP #${mpPaymentId} ya fue procesado. Si no ves tus boletos en "Mis Viajes", contáctanos indicando este número.)`
+        setPayError(msg)
+      }
+      if (cardFormData) throw new Error(msg, { cause: err })
     } finally {
       setIsProcessing(false)
     }
@@ -1430,6 +1722,15 @@ export default function CheckoutPage({
                 onPay={handlePay}
                 isProcessing={isProcessing}
                 payError={payError}
+                payerEmail={buyer.email}
+                onPayerEmailChange={(v) => setBuyer((b) => ({ ...b, email: v }))}
+                cardholderName={resolveCardholderName()}
+                externalReference={externalReferenceValue}
+                onBrickReady={() => {}}
+                onBrickError={(err) => {
+                  console.error('[MP] Card Payment Brick error', err)
+                  if (err?.userMessage) setPayError(err.userMessage)
+                }}
               />
             </aside>
           </div>
@@ -1519,32 +1820,73 @@ export default function CheckoutPage({
           </div>
 
           {payError && <Alert variant="error">{payError}</Alert>}
+
+          {paymentMethod === 'card' ? (
+            isProcessing ? (
+              <div
+                className="w-full py-3 rounded-xl font-medium bg-neutral-200 text-neutral-600 text-center"
+                role="status"
+                aria-live="polite"
+              >
+                Procesando pago con Mercado Pago...
+              </div>
+            ) : USE_LOCAL_CARD_FORM ? (
+              <LocalCardPaymentForm
+                amount={total}
+                payerEmail={buyer.email}
+                onEmailChange={(v) => setBuyer((b) => ({ ...b, email: v }))}
+                cardholderName={resolveCardholderName()}
+                externalReference={externalReferenceValue}
+                onSubmit={handlePay}
+                onReady={() => {}}
+                onError={(err) => {
+                  console.error('[CardForm] error (mobile)', err)
+                  if (err?.userMessage) setPayError(err.userMessage)
+                }}
+              />
+            ) : (
+              <CardPaymentBrickContainer
+                amount={total}
+                payerEmail={buyer.email}
+                cardholderName={resolveCardholderName()}
+                externalReference={externalReferenceValue}
+                onSubmit={handlePay}
+                onReady={() => {}}
+                onError={(err) => {
+                  console.error('[MP] Card Payment Brick error (mobile)', err)
+                  if (err?.userMessage) setPayError(err.userMessage)
+                }}
+              />
+            )
+          ) : null}
         </main>
 
-        <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-neutral-200 px-4 py-3 z-40 shadow-lg">
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col">
-              <span className="text-xs text-neutral-600">Total a pagar</span>
-              <span className="text-lg font-bold text-neutral-900">
-                S/ {total.toFixed(2)}
-              </span>
+        {paymentMethod !== 'card' && (
+          <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-neutral-200 px-4 py-3 z-40 shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="flex flex-col">
+                <span className="text-xs text-neutral-600">Total a pagar</span>
+                <span className="text-lg font-bold text-neutral-900">
+                  S/ {total.toFixed(2)}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handlePay}
+                disabled={!acceptedTerms || isProcessing}
+                className={`flex-1 py-3 rounded-xl font-medium transition-colors ${
+                  acceptedTerms && !isProcessing
+                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                    : 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
+                }`}
+              >
+                {isProcessing
+                  ? 'Procesando pago seguro...'
+                  : `Pagar S/ ${total.toFixed(2)}`}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={handlePay}
-              disabled={!acceptedTerms || isProcessing}
-              className={`flex-1 py-3 rounded-xl font-medium transition-colors ${
-                acceptedTerms && !isProcessing
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-neutral-200 text-neutral-400 cursor-not-allowed'
-              }`}
-            >
-              {isProcessing
-                ? 'Procesando pago seguro...'
-                : `Pagar S/ ${total.toFixed(2)}`}
-            </button>
           </div>
-        </div>
+        )}
 
         <BottomNav active="buscar" onNavigate={onNavigate} />
       </div>

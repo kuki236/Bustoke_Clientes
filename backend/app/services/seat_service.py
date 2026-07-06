@@ -21,18 +21,12 @@ class SeatService:
         self.seats = SeatRepository(db)
         self.travels = TravelRepository(db)
 
-    # ========================================================================
-    # MAPA
-    # ========================================================================
-
+# ========================================================================
     def get_seat_map(self, viaje_id: int) -> Optional[dict]:
         """Devuelve el mapa de asientos del viaje o None si el viaje no existe."""
         return self.seats.get_seat_map(viaje_id)
 
-    # ========================================================================
-    # HOLD
-    # ========================================================================
-
+# ========================================================================
     def hold_seat(
         self,
         id_viaje: int,
@@ -97,11 +91,7 @@ class SeatService:
 
         existing = self.seats.get_active_hold(id_viaje, id_asiento)
         if existing is not None:
-            # FIX bug "deselect zombie": para renovar correctamente
-            # cuando el usuario está logueado, comparamos también
-            # por `id_usuario`. Si el hold original no tenía
-            # id_usuario pero el nuevo sí, los tratamos como
-            # "distintos" para no pisar el hold de otra sesión.
+# FIX bug "deselect zombie": para renovar correctamente
             same_session = (
                 token_sesion and existing.token_sesion == token_sesion
             )
@@ -135,10 +125,7 @@ class SeatService:
 
         return self._hold_to_dict(hold, estado="activo")
 
-    # ========================================================================
-    # RELEASE
-    # ========================================================================
-
+# ========================================================================
     def release_seat(
         self,
         id_viaje: int,
@@ -177,10 +164,7 @@ class SeatService:
             "estado": "liberado" if count > 0 else "sin_bloqueo",
         }
 
-    # ========================================================================
-    # HELPERS
-    # ========================================================================
-
+# ========================================================================
     @staticmethod
     def _generate_token() -> str:
         return secrets.token_urlsafe(24)

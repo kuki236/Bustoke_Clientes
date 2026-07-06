@@ -87,11 +87,25 @@ app.add_middleware(
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_: Request, exc: RequestValidationError):
     """Devuelve un payload legible cuando Pydantic rechaza un body."""
+    errors = exc.errors()
+    # FIX: incluimos el detalle de los primeros errores en `detail`
+    # para que el frontend pueda mostrar el campo que falló (antes
+    # solo decía "Error de validación en la petición" y era opaco).
+    parts = []
+    for err in errors[:5]:
+        loc = ".".join(str(x) for x in err.get("loc", []) if x != "body")
+        msg = err.get("msg", "")
+        parts.append(f"{loc}: {msg}" if loc else msg)
+    detail = (
+        "Error de validación: " + "; ".join(parts)
+        if parts
+        else "Error de validación en la petición"
+    )
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
-            "detail": "Error de validación en la petición",
-            "errors": exc.errors(),
+            "detail": detail,
+            "errors": errors,
         },
     )
 

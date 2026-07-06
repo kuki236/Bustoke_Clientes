@@ -41,3 +41,6 @@ websockets==16.0
 qrcode==8.2
 reportlab==5.0.0
 pillow==12.2.0
+
+# Mercado Pago SDK (Card Payment Brick - backend)
+mercadopago==2.3.0

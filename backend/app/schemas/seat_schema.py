@@ -14,9 +14,6 @@ _ASIENTO_PATTERN = re.compile(r"^[A-Z][0-9]-[0-9]+$")
 
 
 # ============================================================================
-# ASIENTO
-# ============================================================================
-
 class AsientoBase(BaseModel):
     id_bus: int = Field(..., ge=1)
     numero_asiento: str = Field(
@@ -69,9 +66,6 @@ class AsientoRead(AsientoBase):
 
 
 # ============================================================================
-# ESTADO COMPUTADO DE ASIENTO EN VIAJE (vista `vw_estado_asientos_viaje`)
-# ============================================================================
-
 class AsientoViajeRead(BaseModel):
     """
     Asiento enriquecido con su estado en un viaje específico.
@@ -110,9 +104,6 @@ class AsientoBulkCreateResponse(BaseModel):
 
 
 # ============================================================================
-# MAPA DE ASIENTOS DE UN VIAJE (RF-05 / RF-12)
-# ============================================================================
-
 class AsientoMapaItem(BaseModel):
     """
     Celda de la matriz de asientos devuelta por
@@ -179,11 +170,7 @@ class SeatHoldRequest(BaseModel):
         "genera uno nuevo. Si el bloqueo vigente pertenece al mismo "
         "token, se renueva la expiración.",
     )
-    # FIX bug "deselect deja hold zombie cuando user está logueado":
-    # el frontend debe enviar el id_usuario al crear el hold, así
-    # el release (que filtra por id_usuario cuando está presente)
-    # puede encontrarlo correctamente. Si se omite, el hold queda
-    # con id_usuario=NULL.
+# FIX bug "deselect deja hold zombie cuando user está logueado":
     id_usuario: Optional[int] = Field(
         default=None,
         ge=1,

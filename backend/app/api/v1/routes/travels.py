@@ -11,7 +11,7 @@ real la cantidad de asientos libres por viaje.
 from datetime import date, datetime, timedelta
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -29,11 +29,12 @@ TipoServicioLiteral = Literal["vip", "normal"]
 # es la ventana operativa realista de las agencias de buses.
 MAX_SEARCH_DAYS = 90
 
+# PERFORMANCE: cache HTTP para /search. Los resultados no cambian
+SEARCH_CACHE_MAX_AGE = 30
+SEARCH_CACHE_SWR = 60
+
 
 # ============================================================================
-# GET /v1/travels/search - Búsqueda de viajes disponibles
-# ============================================================================
-
 @router.get(
     "/search",
     response_model=List[ViajeBusquedaResponse],
@@ -41,6 +42,7 @@ MAX_SEARCH_DAYS = 90
     tags=["Travels"],
 )
 async def search_travels(
+    response: Response,
     id_terminal_origen: int = Query(..., ge=1, description="Terminal de partida"),
     id_terminal_destino: int = Query(..., ge=1, description="Terminal de llegada"),
     fecha_salida: date = Query(..., description="Fecha de salida (YYYY-MM-DD)"),
@@ -88,9 +90,7 @@ async def search_travels(
     - `tipo_servicio`: "vip" | "normal".
     - `turno`: "manana" | "tarde" | "noche".
     """
-    # FIX BUG-028: rechazar fechas pasadas. El frontend ya valida
-    # con `min` en el input, pero un request directo a la API
-    # podría saltarse esa restricción. Defensa en profundidad.
+# FIX BUG-028: rechazar fechas pasadas. El frontend ya valida
     today = date.today()
     if fecha_salida < today:
         raise HTTPException(
@@ -129,7 +129,7 @@ async def search_travels(
         )
 
     service = TravelService(db)
-    return service.search_travels(
+    results = service.search_travels(
         id_terminal_origen=id_terminal_origen,
         id_terminal_destino=id_terminal_destino,
         fecha_salida=fecha_salida,
@@ -140,12 +140,16 @@ async def search_travels(
         tipo_servicio=tipo_servicio,
         turno=turno,
     )
+    # Cache HTTP: 30s fresh + 60s stale-while-revalidate.
+    # El navegador y cualquier proxy pueden reusar la respuesta.
+    response.headers["Cache-Control"] = (
+        f"public, max-age={SEARCH_CACHE_MAX_AGE}, "
+        f"stale-while-revalidate={SEARCH_CACHE_SWR}"
+    )
+    return results
 
 
 # ============================================================================
-# GET /v1/travels/{id_viaje} - Detalle de un viaje
-# ============================================================================
-
 @router.get(
     "/{id_viaje}",
     response_model=ViajeBusquedaResponse,
@@ -188,9 +192,6 @@ async def get_travel(
 
 
 # ============================================================================
-# GET /v1/travels/{id_viaje}/seats - Mapa de asientos
-# ============================================================================
-
 @router.get(
     "/{id_viaje}/seats",
     response_model=MapaAsientosResponse,
@@ -218,9 +219,6 @@ async def get_travel_seats(
 
 
 # ============================================================================
-# GET /v1/travels/{id_viaje}/manifiesto - Manifiesto SUTRAN (RF-17)
-# ============================================================================
-
 @router.get(
     "/{id_viaje}/manifiesto",
     summary="Manifiesto oficial SUTRAN (RF-17)",

@@ -5,10 +5,8 @@ function buildGoogleMapsUrl(destination, { travelMode = 'driving' } = {}) {
   return `https://www.google.com/maps/dir/?api=1&destination=${encoded}&travelmode=${travelMode}`
 }
 
-// FIX BUG-151: embed REAL de Google Maps (no simulación CSS).
-// Usa el endpoint público de embed que no requiere API key.
-// El query es la dirección completa del terminal de embarque, no
-// la ciudad genérica (FIX BUG-154).
+// Embed de Google Maps.
+
 function GoogleMapsEmbed({ query, className = '' }) {
   if (!query) return null
   const src = `https://maps.google.com/maps?q=${encodeURIComponent(
@@ -79,9 +77,8 @@ export default function GuidedRouteMap({
   address,
   className = '',
 }) {
-  // FIX BUG-154: el query del mapa debe ser la dirección específica
-  // del terminal (con distrito/ciudad), no solo la ciudad de origen.
-  // Priorizamos `address` (calle+distrito) sobre `destinationName`.
+// FIX BUG-154: el query del mapa debe ser la dirección específica
+
   const query = address || destinationName || origin
   return (
     <div className="flex flex-col gap-1">

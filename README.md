@@ -71,7 +71,8 @@ Características clave del backend ya operativas:
 | Landing con buscador | `LandingPage`, `Hero`, `SearchBar`, `SearchField`, `DestinationCarousel`, `BenefitsSection`, `FaqSection` | Implementado |
 | Resultados de búsqueda | `ResultsPage`, `FilterSidebar`, `BusCardDesktop`, `BusCardMobile`, `ResultsMobileHeader` | Implementado (consume `/v1/travels/search`) |
 | Selección de asientos | `SeatSelectionPage` (multi-piso, hold/release, countdown) | Implementado (consume `/v1/travels/{id}/seats`, `/v1/seats/hold`, `/v1/seats/release`) |
-| Checkout | `CheckoutPage` (pasajeros, métodos de pago) | Implementado (consume `/v1/bookings/process`) |
+| Checkout | `CheckoutPage` (pasajeros, métodos de pago, formulario de tarjeta) | Implementado (consume `/v1/bookings/process`) |
+| Formulario de tarjeta | `LocalCardPaymentForm` (UI estilo Mercado Pago, tokenización local) | Implementado |
 | Confirmación | `CheckoutSuccessPage` | Implementado |
 | Autenticación | `LoginPage`, `RegisterPage`, `AuthContext` | Implementado (consume `/v1/auth/*`) |
 | Mis viajes | `HistoryPage`, `ConfirmationPage` | Implementado |
@@ -236,7 +237,7 @@ Los tests viven en `backend/tests/`.
 ## Convenciones del proyecto
 
 - **Backend**: arquitectura en capas `routers → services → repositories`, con `schemas` Pydantic separados por dominio (`auth`, `travel`, `seat`, `booking`, `user`, `agency`, `claim`, `transaction`, etc.).
-- **Frontend**: cada vista/pantalla es un componente en `src/components/`. Las llamadas a la API se centralizan en `src/api/`. Los datos mock están en `src/data/`.
+- **Frontend**: cada vista/pantalla es un componente en `src/components/`. Las llamadas a la API se centralizan en `src/api/`. Los datos de catálogo están en `src/data/`.
 - **Idioma**: documentación y comentarios en español, mensajes de error también en español.
 - **Naming**: backend usa `snake_case` (alineado a la BD), frontend usa `camelCase` con normalización en la capa `api/`.
 

@@ -69,6 +69,14 @@ class Settings(BaseSettings):
     # ---------- Negocio ----------
     SEAT_HOLD_TTL_SECONDS: int = 600
 
+    # ---------- Mercado Pago (Card Payment Brick) ----------
+    # Credenciales sandbox por defecto. En producción se sobreescriben
+    # vía variables de entorno. La cuenta está en Perú (PEN).
+    MERCADOPAGO_PUBLIC_KEY: str | None = None
+    MERCADOPAGO_ACCESS_TOKEN: str | None = None
+    MERCADOPAGO_CURRENCY: str = "PEN"
+    MERCADOPAGO_COUNTRY: str = "PE"
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def _split_cors(cls, value):

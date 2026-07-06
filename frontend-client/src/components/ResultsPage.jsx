@@ -26,6 +26,19 @@ const FALLBACK_DESTINATION = 'Trujillo'
 const FALLBACK_DATE = '2026-06-15'
 const FALLBACK_PASSENGERS = '1'
 
+// PERFORMANCE: hook de debounce para objetos. Compara el JSON del
+// objeto en cada render; si no cambia tras `delay` ms, lo publica.
+// Usado para que el usuario pueda mover sliders / toggles de filtro
+// sin disparar un GET por cada movimiento.
+function useDebouncedFilters(value, delay) {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(t)
+  }, [JSON.stringify(value), delay])
+  return debounced
+}
+
 function ResultsSkeleton({ count = 4 }) {
   return (
     <div className="flex flex-col gap-4" aria-busy="true" aria-label="Cargando resultados">
@@ -209,6 +222,13 @@ export default function ResultsPage() {
   const [selectedTripId, setSelectedTripId] = useState(null)
   const requestIdRef = useRef(0)
 
+  // PERFORMANCE: debounce de los filtros. El usuario suele mover
+  // sliders / toggles rapidamente; sin debounce, cada movimiento
+  // dispara un GET al backend. 300ms es suficiente para que el
+  // usuario "termine" de ajustar y reduce el trafico al backend
+  // a 1 request por rafaga de movimientos.
+  const debouncedFilters = useDebouncedFilters(filters, 300)
+
   useEffect(() => {
     const continueFromSeats = location.state?.continueFromSeats
     if (!continueFromSeats) return
@@ -287,13 +307,13 @@ export default function ResultsPage() {
       id_terminal_origen: idOrigen,
       id_terminal_destino: idDestino,
       fecha_salida: values.date,
-      agencias: filters.companies,
-      precio_min: filters.priceMin,
-      precio_max: filters.priceMax,
-      tipo_servicio: (filters.seatTypes || [])
+      agencias: debouncedFilters.companies,
+      precio_min: debouncedFilters.priceMin,
+      precio_max: debouncedFilters.priceMax,
+      tipo_servicio: (debouncedFilters.seatTypes || [])
         .map((s) => TIPO_SERVICIO_TO_BACKEND[s])
         .filter(Boolean)[0] || null,
-      turno: (filters.shifts || [])
+      turno: (debouncedFilters.shifts || [])
         .map((s) => TURNO_TO_BACKEND[s])
         .filter(Boolean)[0] || null,
     })
@@ -330,11 +350,11 @@ export default function ResultsPage() {
     values.origin,
     values.destination,
     values.date,
-    filters.companies,
-    filters.priceMin,
-    filters.priceMax,
-    filters.seatTypes,
-    filters.shifts,
+    debouncedFilters.companies,
+    debouncedFilters.priceMin,
+    debouncedFilters.priceMax,
+    debouncedFilters.seatTypes,
+    debouncedFilters.shifts,
   ])
 
   const handleBackToLanding = useCallback(() => {

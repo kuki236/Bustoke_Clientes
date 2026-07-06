@@ -29,7 +29,7 @@ export const SEAT_TYPES = ['VIP', 'Normal']
 
 export const SHIFTS = ['Mañana', 'Tarde', 'Noche']
 
-export const PRICE_RANGE = { min: 45, max: 200 }
+export const PRICE_RANGE = { min: 30, max: 300 }
 
 export const TIPO_SERVICIO_TO_BACKEND = {
   VIP: 'vip',

@@ -38,8 +38,6 @@ router = APIRouter()
 
 
 # Ventana de validez del QR: -1 día antes / +1 día después de la salida.
-# Boleto de viaje de 2026-07-15 puede validarse desde 2026-07-14 00:00
-# hasta 2026-07-16 23:59. Cubre atrasos pequeños y adelanteo razonable.
 QR_VALID_WINDOW_BEFORE = timedelta(days=1)
 QR_VALID_WINDOW_AFTER = timedelta(days=1)
 
@@ -68,9 +66,7 @@ async def validar_boleto(
        hace commit y retorna el mensaje de bienvenida con el
        `id_asiento` para asignación en el bus.
     """
-    # FIX XBUG-006: row lock pesimista para serializar embarques
-    # concurrentes del mismo QR. Si dos counter-agents escanean al
-    # mismo tiempo, el segundo espera al primero.
+# FIX XBUG-006: row lock pesimista para serializar embarques
     stmt = (
         select(Boleto)
         .where(Boleto.codigo_qr == codigo_qr)
