@@ -1311,7 +1311,7 @@ export default function CheckoutPage({
     })
 
     console.log(
-      '[Checkout] POST http://localhost:8000/v1/bookings/process',
+      '[Checkout] POST https://bustoke-backend.onrender.com/v1/bookings/process',
       payload,
     )
 

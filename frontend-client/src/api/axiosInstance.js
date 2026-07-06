@@ -60,7 +60,7 @@ export function clearAllTokens() {
 export const TOKEN_STORAGE_KEY = ACCESS_TOKEN_KEY
 
 const axiosInstance = axios.create({
-  baseURL: 'http://localhost:8000/v1',
+  baseURL : "https://bustoke-backend.onrender.com/v1",
   timeout: 15000,
   headers: {
     'Content-Type': 'application/json',

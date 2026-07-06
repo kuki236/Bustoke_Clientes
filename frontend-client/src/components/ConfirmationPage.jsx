@@ -241,7 +241,7 @@ function DigitalTicketCard({ ticket, reservationCode, className = '' }) {
           Escanear al abordar
         </p>
         <QRCodeSVG
-          value={`http://192.168.1.50:8000/v1/boletos/validar/${ticket.codigo_qr}`}
+          value={`https://bustoke-backend.onrender.com/v1/boletos/validar/${ticket.codigo_qr}`}
           size={112}
           className="p-1 bg-white rounded-md border border-slate-200"
         />
