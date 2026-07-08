@@ -1,0 +1,18 @@
+[tool.pytest.ini_options]
+# Hace que pytest agregue el directorio `backend/` a sys.path
+# (donde vive el paquete `app/`) al ejecutar tests. Sin esto,
+# en CI el primer entry de sys.path es `backend/venv/bin/`
+# (porque `pytest` es un script instalado en el venv) y los
+# imports `from app...` fallan con ModuleNotFoundError.
+# En local funcionaba "por suerte" porque el usuario ejecutaba
+# pytest desde el venv con un PYTHONPATH que sí incluía backend/.
+pythonpath = ["."]
+
+# Directorios a ignorar en la recolección. Evita que pytest
+# intente descubrir tests dentro del propio venv.
+testpaths = ["tests"]
+
+# Markers custom (silencia warning de --strict-markers).
+markers = [
+    "asyncio: marca tests asíncronos (no usados actualmente; aquí para futuro).",
+]
