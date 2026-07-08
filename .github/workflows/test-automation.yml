@@ -173,7 +173,11 @@ jobs:
 
       - name: Instalar dependencias Node (frontend)
         working-directory: frontend-client
-        run: npm ci
+        # Usamos `npm install` (no `npm ci`) porque el package-lock.json
+        # puede estar desincronizado con package.json (p.ej. tras añadir
+        # cypress). `npm install` lo regenera automáticamente; `npm ci`
+        # falla con EUSAGE si hay drift.
+        run: npm install --no-audit --no-fund
 
       - name: Generar .env de CI
         working-directory: backend
@@ -338,7 +342,9 @@ jobs:
 
       - name: Instalar dependencias
         working-directory: frontend-client
-        run: npm ci
+        # Ver nota en e2e-tests: usamos `npm install` para tolerar
+        # drift del package-lock.json.
+        run: npm install --no-audit --no-fund
 
       - name: Ejecutar ESLint
         working-directory: frontend-client

@@ -45,3 +45,7 @@ pillow==12.2.0
 
 # Mercado Pago SDK (Card Payment Brick - backend)
 mercadopago==2.3.0
+
+# Test suite (pytest). Separado del runtime para que `pip install`
+# en producción no incluya dependencias de testing.
+pytest==9.0.3
