@@ -55,7 +55,7 @@ def reset_tables(session) -> None:
         "mensajes_reclamo", "reclamos", "manifiestos_sutran",
         "audit_logs", "historial_estados_viaje", "viajes",
         "tarifas_ruta", "rutas", "asientos", "buses",
-        "agencias_terminales", "agencias", "terminales",
+        "choferes", "agencias_terminales", "agencias", "terminales",
         "distritos", "provincias", "departamentos",
         "pasajeros", "usuarios", "tipos_documento",
         "liquidaciones_agencia", "suscripciones", "planes",
@@ -181,10 +181,36 @@ def reset_sequences(session, table_max_ids: dict) -> None:
     Reinicia las secuencias SERIAL de PostgreSQL al MAX(id) actual + 1,
     para que futuros INSERTs sin ID explícito no colisionen con los
     IDs fijos que acabamos de insertar.
+
+    Cada tabla tiene su PK con nombre propio (`id_tipo_documento`,
+    `id_departamento`, etc.), así que el segundo argumento de
+    `pg_get_serial_sequence` debe ser la PK específica, NO el
+    genérico `'id'`. El mapeo está hardcodeado aquí (sincronizado
+    con `bustoke_bd.sql` y `app/models/*.py`).
     """
+    pk_columns = {
+        "tipos_documento": "id_tipo_documento",
+        "departamentos": "id_departamento",
+        "provincias": "id_provincia",
+        "distritos": "id_distrito",
+        "agencias": "id_agencia",
+        "terminales": "id_terminal",
+        "rutas": "id_ruta",
+        "tarifas_ruta": "id_tarifa",
+        "buses": "id_bus",
+        "asientos": "id_asiento",
+        "viajes": "id_viaje",
+    }
     for table, max_id in table_max_ids.items():
+        pk_col = pk_columns.get(table)
+        if pk_col is None:
+            # Tabla sin PK SERIAL conocida: la saltamos silenciosamente.
+            continue
         session.execute(
-            text(f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), :next_val)"),
+            text(
+                f"SELECT setval("
+                f"pg_get_serial_sequence('{table}', '{pk_col}'), :next_val)"
+            ),
             {"next_val": max_id + 1},
         )
 
