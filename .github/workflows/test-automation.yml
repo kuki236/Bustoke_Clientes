@@ -24,7 +24,7 @@ name: Test Automation
 on:
   push:
     branches: [main, develop]
-  paths:
+    paths:
       - 'backend/**'
       - 'frontend-client/**'
       - '.github/workflows/test-automation.yml'
