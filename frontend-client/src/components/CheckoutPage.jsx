@@ -1078,7 +1078,7 @@ function CardPaymentBrickContainer({
     if (controllerRef.current) {
       try {
         controllerRef.current.unmount()
-      } catch (e) {
+      } catch {
         // ignorar
       }
       controllerRef.current = null
@@ -1351,7 +1351,6 @@ export default function CheckoutPage({
     (checked) => {
       setUseProfileForPax1(checked)
       if (checked && passengers[0] && profilePassenger) {
-        const p0 = passengers[0]
         setPassengers((prev) =>
           prev.map((p, i) =>
             i === 0
@@ -1403,7 +1402,7 @@ export default function CheckoutPage({
         tokenSesion: readSessionToken(),
         passengersCount: passengers.length,
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [idViaje, trip?.id, passengers.length],
   )
 

@@ -67,7 +67,7 @@ function DateField({ label, value, placeholder, min, max, onChange, wrapperClass
     if (!input || typeof input.showPicker !== 'function') return
     try {
       input.showPicker()
-    } catch (err) {
+    } catch {
 // FIX showPicker NotAllowedError:
 
     }

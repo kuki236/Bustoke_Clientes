@@ -163,7 +163,7 @@ export default function LocalCardPaymentForm({
   }, [onReady])
   useEffect(() => {
     onReadyRef.current?.()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [])
 
   const brand = useMemo(() => detectBrand(cardNumber), [cardNumber])

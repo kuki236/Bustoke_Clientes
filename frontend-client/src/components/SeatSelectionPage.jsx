@@ -294,10 +294,6 @@ function buildSeatRows(seats) {
   )
 }
 
-const AISLE_CELL = (
-  <div aria-hidden="true" className="w-full" key="aisle-cell" />
-)
-
 function BusLayout({ seats, floor, selectedIds, busyIds, onToggle }) {
   if (seats.length === 0) {
     return (

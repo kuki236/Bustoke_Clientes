@@ -20,19 +20,6 @@ import Navbar from './Navbar'
 // FIX BUG-144: el campo "Tipo de Bien" fue removido del formulario
 
 
-const TRACKING_PREFIX = 'REC'
-const TRACKING_CHARS = '0123456789ABCDEFGHJKLMNPQRSTUVWXYZ'
-
-function generateTrackingCode() {
-  let code = ''
-  for (let i = 0; i < 8; i += 1) {
-    code += TRACKING_CHARS.charAt(
-      Math.floor(Math.random() * TRACKING_CHARS.length),
-    )
-  }
-  return `${TRACKING_PREFIX}-${code}`
-}
-
 function findAgencyIdByName(name) {
   if (!name) return ''
   const normalized = String(name).trim().toLowerCase()
@@ -151,46 +138,6 @@ function SelectField({
         )}
       </div>
     </div>
-  )
-}
-
-function RadioOption({ name, value, option, selected, onChange }) {
-  const isSelected = selected === value
-  return (
-    <label
-      className={`flex items-start gap-3 p-3 border rounded-xl cursor-pointer transition-colors ${
-        isSelected
-          ? 'border-blue-600 bg-blue-50'
-          : 'border-neutral-200 bg-white hover:border-neutral-400'
-      }`}
-    >
-      <input
-        type="radio"
-        name={name}
-        value={value}
-        checked={isSelected}
-        onChange={() => onChange(value)}
-        className="sr-only"
-      />
-      <span
-        className={`w-4 h-4 mt-0.5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-          isSelected ? 'border-blue-600' : 'border-neutral-400'
-        }`}
-        aria-hidden="true"
-      >
-        {isSelected && (
-          <span className="w-2 h-2 rounded-full bg-blue-600" />
-        )}
-      </span>
-      <span className="flex flex-col">
-        <span className="text-sm font-semibold text-neutral-900">
-          {option.label}
-        </span>
-        <span className="text-xs text-neutral-500 mt-0.5">
-          {option.helper}
-        </span>
-      </span>
-    </label>
   )
 }
 
@@ -709,7 +656,7 @@ function ClaimsForm({ onSubmitted, isDesktop = false, initial = {}, linkedTrip =
 }
 
 export default function ClaimsPage({ onNavigate, onBack, linkedTrip = null }) {
-  const { user, isAuthenticated, loading: authLoading } = useAuth()
+  const { user, isAuthenticated } = useAuth()
 
   const initial = (() => {
     if (isAuthenticated && user) {

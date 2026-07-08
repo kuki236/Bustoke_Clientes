@@ -38,7 +38,7 @@ concurrency:
 
 env:
   PYTHON_VERSION: '3.11'
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
   # Cypress apunta siempre al backend local (no a Render) en CI.
   CYPRESS_API_URL: http://localhost:8000/v1
   CYPRESS_BASE_URL: http://localhost:5173
@@ -73,7 +73,8 @@ jobs:
       - name: Instalar dependencias Python
         working-directory: backend
         run: |
-          python -m venv venv
+          set -euo pipefail
+          python3 -m venv venv
           source venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
@@ -85,6 +86,7 @@ jobs:
       - name: Ejecutar suite de tests
         working-directory: backend
         run: |
+          set -euo pipefail
           source venv/bin/activate
           # JUnit XML → artefacto descargable.
           # --strict-markers evita warnings de markers mal definidos.

@@ -13,19 +13,6 @@ import BottomNav from './BottomNav'
 import Alert from './Alert'
 import { useAuth } from '../context/AuthContext'
 
-function getBoletoValidationUrl() {
-  try {
-    const fromEnv = import.meta.env.VITE_API_BASE_URL
-    if (fromEnv) return fromEnv.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
-  } catch {
-    // ignore
-  }
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin.replace(/\/+$/, '')
-  }
-  return 'http://localhost:8000'
-}
-
 const DEFAULT_DATE = '15/06/2026'
 const PAYMENT_METHOD_LABEL = {
   yape: 'Yape / Plin',
