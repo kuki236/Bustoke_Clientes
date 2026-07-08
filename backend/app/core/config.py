@@ -8,10 +8,10 @@ configuración debe importar la instancia `settings` definida aquí.
 
 import math
 from functools import lru_cache
-from typing import List
+from typing import Annotated, List
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 # ============================================================================
@@ -96,7 +96,11 @@ class Settings(BaseSettings):
     # ---------- CORS ----------
     # FIX BUG-010/XBUG-028: por default permitimos los 3 puertos
     # comunes del frontend dev (3000 = CRA, 5173 = Vite, 4173 = Vite preview).
-    CORS_ORIGINS: List[str] = Field(
+    # `NoDecode` desactiva el parseo JSON automático de pydantic-settings
+    # para que el valor CSV del env (ej: "http://a,http://b") llegue
+    # como string al field_validator `_split_cors` en lugar de fallar
+    # con `SettingsError: error parsing value`.
+    CORS_ORIGINS: Annotated[List[str], NoDecode] = Field(
         default_factory=lambda: [
             "http://localhost:3000",
             "http://localhost:5173",
