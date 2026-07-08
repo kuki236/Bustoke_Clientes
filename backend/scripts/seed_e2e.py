@@ -53,13 +53,13 @@ def reset_tables(session) -> None:
     tables = [
         "bloqueos_temporales", "boletos", "pagos", "reembolsos",
         "mensajes_reclamo", "reclamos", "manifiestos_sutran",
-        "audit_logs", "historial_estado_viaje", "viajes",
+        "audit_logs", "historial_estados_viaje", "viajes",
         "tarifas_ruta", "rutas", "asientos", "buses",
         "agencias_terminales", "agencias", "terminales",
         "distritos", "provincias", "departamentos",
         "pasajeros", "usuarios", "tipos_documento",
         "liquidaciones_agencia", "suscripciones", "planes",
-        "configuracion_comision", "api_keys", "tickets_soporte",
+        "configuracion_comisiones", "api_keys", "tickets_soporte",
     ]
     # RESTART IDENTITY reinicia las secuencias SERIAL a 1.
     session.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE"))
