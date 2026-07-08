@@ -50,6 +50,25 @@ class BookingService:
                     "Debes aceptar los términos y políticas para continuar."
                 )
 
+# FIX DISCREPANCIA TEST_PLAN (TC-RB-002): idempotencia de pagos.
+# Si el frontend reintenta con el mismo `mp_payment_id`, devolvemos
+# el pago original con 409 (en lugar de generar uno nuevo que resultaría
+# en un cobro duplicado al usuario).
+            mp_payment_id = getattr(payload, "mp_payment_id", None)
+            if payload.metodo_pago == "tarjeta" and mp_payment_id:
+                referencia_transaccion_check = f"MP-{int(mp_payment_id)}"
+                existing_pago = self.repo.get_pago_by_referencia(
+                    referencia_transaccion_check
+                )
+                if existing_pago is not None:
+                    raise ValueError(
+                        f"El pago MP-{int(mp_payment_id)} ya fue procesado "
+                        f"anteriormente. Pago existente: id_pago="
+                        f"{existing_pago.id_pago}, id_boleto="
+                        f"{existing_pago.id_boleto}. No se puede procesar "
+                        f"el mismo mp_payment_id dos veces."
+                    )
+
             viaje = self.repo.get_viaje(payload.id_viaje)
             if viaje is None:
                 raise ValueError(f"Viaje {payload.id_viaje} no encontrado")
@@ -84,7 +103,9 @@ class BookingService:
 
             codigo_reserva = f"BK-{uuid.uuid4().hex[:10].upper()}"
 # FIX: si el frontend envió `mp_payment_id` (porque pasó por
-            mp_payment_id = getattr(payload, "mp_payment_id", None)
+# Mercado Pago), lo usamos como referencia de la transacción. Esto
+# ya está cubierto por la validación de idempotencia anterior; si
+# llegamos aquí es porque es la primera vez que se procesa.
             if payload.metodo_pago == "tarjeta" and mp_payment_id:
                 referencia_transaccion = f"MP-{int(mp_payment_id)}"
             else:

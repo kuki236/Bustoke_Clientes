@@ -16,7 +16,13 @@ class ReclamoBase(BaseModel):
     id_agencia: int = Field(..., ge=1)
     motivo: str = Field(..., min_length=1, max_length=150)
     # FIX BUG-135: max_length evita payloads enormes (DoS por JSON pesado).
-    detalle: str = Field(..., min_length=1, max_length=5000)
+    # FIX DISCREPANCIA TEST_PLAN (TC-BB-031): min_length=15 alinea la
+    # validación del backend con la regla de negocio que el frontend ya
+    # enforza en `claims.js:30-32` ("El detalle debe tener al menos
+    # 15 caracteres"). Antes el backend aceptaba 1 char, lo que
+    # permitía bypasear la validación cliente y enviar reclamos
+    # triviales (válvula de spam / baja calidad de datos).
+    detalle: str = Field(..., min_length=15, max_length=5000)
 
 
 class ReclamoCreate(ReclamoBase):

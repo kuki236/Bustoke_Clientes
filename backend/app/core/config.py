@@ -6,11 +6,45 @@ utilizando pydantic-settings. Cualquier módulo que requiera acceso a
 configuración debe importar la instancia `settings` definida aquí.
 """
 
+import math
 from functools import lru_cache
 from typing import List
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# ============================================================================
+# FIX A02 (OWASP): validación de entropía del SECRET_KEY
+# ============================================================================
+# NIST SP 800-117 recomienda ≥ 128 bits para HMAC-SHA256. Usamos 256 bits
+# como margen para protegernos contra ataques de diccionario sobre
+# secretos aparentemente "largos" pero de baja entropía (ej:
+# "bustoke_clave_secreta_26262626" mide 32 chars pero tiene ~120 bits).
+MIN_SECRET_KEY_BITS = 256
+
+
+def _shannon_entropy_bits(value: str) -> float:
+    """
+    Calcula la entropía de Shannon total (en bits) de un string.
+
+    Útil como heurística para detectar secretos débiles (palabras de
+    diccionario, fechas, RUCs, etc.) que aunque midan 30+ caracteres
+    tienen muy poca entropía real.
+
+    Fórmula: H = -Σ p(x) * log2(p(x)) * len(string)
+    """
+    if not value:
+        return 0.0
+    freq: dict[str, int] = {}
+    for ch in value:
+        freq[ch] = freq.get(ch, 0) + 1
+    length = len(value)
+    entropy = 0.0
+    for count in freq.values():
+        p = count / length
+        entropy -= p * math.log2(p)
+    return entropy * length
 
 
 class Settings(BaseSettings):
@@ -54,6 +88,11 @@ class Settings(BaseSettings):
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     JWT_API_KEY_EXPIRE_DAYS: int = 365
 
+    # ---------- Rate Limiting (FIX A07) ----------
+    # Por defecto habilitado. En pytest se desactiva automáticamente
+    # para no romper los 87 tests (que comparten la misma IP "testclient").
+    RATE_LIMIT_ENABLED: bool = True
+
     # ---------- CORS ----------
     # FIX BUG-010/XBUG-028: por default permitimos los 3 puertos
     # comunes del frontend dev (3000 = CRA, 5173 = Vite, 4173 = Vite preview).
@@ -68,6 +107,12 @@ class Settings(BaseSettings):
 
     # ---------- Negocio ----------
     SEAT_HOLD_TTL_SECONDS: int = 600
+    # Job de limpieza de holds expirados. Se ejecuta cada
+    # `HOLD_CLEANUP_INTERVAL_SECONDS` segundos en background dentro
+    # del lifespan de la app. En tests se desactiva con
+    # `HOLD_CLEANUP_DISABLED=true` para no interferir.
+    HOLD_CLEANUP_INTERVAL_SECONDS: int = 300
+    HOLD_CLEANUP_DISABLED: bool = False
 
     # ---------- Mercado Pago (Card Payment Brick) ----------
     # Credenciales sandbox por defecto. En producción se sobreescriben
@@ -88,19 +133,52 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validate_production_secrets(self):
         """
-        FIX BUG-003: bloquea el arranque si en producción se usan los
-        valores por defecto inseguros de `SECRET_KEY` o `DB_PASSWORD`.
+        FIX BUG-003 + FIX A02: endurece la validación de secretos en
+        producción. Ahora no solo bloquea los defaults conocidos, sino
+        que exige:
+
+          1. SECRET_KEY no sea el default "change_me_in_production".
+          2. DB_PASSWORD no sea el default "postgres".
+          3. SECRET_KEY tenga al menos 32 caracteres (longitud mínima).
+          4. SECRET_KEY tenga al menos 256 bits de entropía (FIX A02).
+
+        El cálculo de entropía detecta secretos como
+        "bustoke_clave_secreta_26262626" (32 chars pero ~120 bits)
+        que pasarían la longitud pero son bruteforceables.
+
+        Comando para generar uno seguro:
+            python -c "import secrets; print(secrets.token_urlsafe(64))"
         """
         if self.APP_ENV == "production":
+            # 1. Defaults conocidos
             if self.SECRET_KEY == "change_me_in_production":
                 raise ValueError(
                     "SECRET_KEY debe configurarse en producción "
-                    "(APP_ENV=production). Define un valor seguro en .env."
+                    "(APP_ENV=production). Genera uno con: "
+                    'python -c "import secrets; print(secrets.token_urlsafe(64))"'
                 )
             if self.DB_PASSWORD == "postgres":
                 raise ValueError(
                     "DB_PASSWORD debe configurarse en producción "
                     "(APP_ENV=production). No uses el default inseguro."
+                )
+
+            # 2. Longitud mínima
+            if len(self.SECRET_KEY) < 32:
+                raise ValueError(
+                    f"SECRET_KEY demasiado corto ({len(self.SECRET_KEY)} chars). "
+                    "Mínimo 32 caracteres en producción."
+                )
+
+            # 3. Entropía mínima (FIX A02: detecta secretos predecibles)
+            entropy = _shannon_entropy_bits(self.SECRET_KEY)
+            if entropy < MIN_SECRET_KEY_BITS:
+                raise ValueError(
+                    f"SECRET_KEY tiene entropía insuficiente "
+                    f"({entropy:.1f} bits < {MIN_SECRET_KEY_BITS} bits). "
+                    f"Probablemente es un secreto predecible. Genera uno "
+                    f"aleatorio con: "
+                    f'python -c "import secrets; print(secrets.token_urlsafe(64))"'
                 )
         return self
 
@@ -125,6 +203,19 @@ class Settings(BaseSettings):
             f"postgresql+psycopg2://{self.DB_USER}:{self.DB_PASSWORD}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         )
+
+    @property
+    def secret_key_source(self) -> str:
+        """
+        FIX A02: indica si el SECRET_KEY es seguro o no.
+        Útil para health check y dashboards de observabilidad.
+        """
+        if self.SECRET_KEY == "change_me_in_production":
+            return "default-insecure"
+        entropy = _shannon_entropy_bits(self.SECRET_KEY)
+        if entropy < MIN_SECRET_KEY_BITS:
+            return "low-entropy"
+        return "ok"
 
 
 @lru_cache(maxsize=1)

@@ -120,6 +120,24 @@ class BookingRepository:
         )
         return self.db.scalars(stmt).first()
 
+    # ========================================================================
+    # IDEMPOTENCIA DE PAGOS (FIX TC-RB-002)
+    # ========================================================================
+
+    def get_pago_by_referencia(self, referencia_transaccion: str) -> Optional["Pago"]:
+        """
+        FIX DISCREPANCIA TEST_PLAN (TC-RB-002): búsqueda idempotente
+        por `referencia_transaccion`. Se usa para detectar reintentos
+        del mismo `mp_payment_id` y prevenir cobros duplicados.
+
+        Retorna el `Pago` si ya existe uno con esa referencia, `None`
+        en caso contrario.
+        """
+        stmt = select(Pago).where(
+            Pago.referencia_transaccion == referencia_transaccion
+        )
+        return self.db.scalars(stmt).first()
+
     def create_pasajero(self, data: dict) -> Pasajero:
         pasajero = Pasajero(**data)
         self.db.add(pasajero)

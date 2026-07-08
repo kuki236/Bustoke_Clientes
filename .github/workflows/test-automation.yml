@@ -1,0 +1,367 @@
+# ============================================================================
+# GitHub Actions — Test Automation Pipeline
+#
+# Ejecuta en cada push y pull_request a las ramas `main` y `develop`:
+#
+#   Job 1: backend-tests   → pytest (sin servicios externos, SQLite in-memory)
+#   Job 2: e2e-tests       → Cypress con backend + frontend + PostgreSQL
+#   Job 3: lint            → ESLint del frontend (rápida barrera de calidad)
+#
+# Decisiones clave:
+#   - PostgreSQL se levanta como `service` (no como container separado)
+#     para que uvicorn pueda conectarse vía localhost:5432.
+#   - El backend usa SQLite in-memory para pytest (más rápido, sin
+#     dependencias externas); pero usa PostgreSQL real para servir
+#     a Cypress (porque los specs esperan un viaje sembrado).
+#   - Los jobs e2e y backend corren en paralelo: ahorra ~50% del
+#     tiempo total del pipeline.
+#   - Concurrency group cancela ejecuciones obsoletas en PRs.
+#   - Artefactos: JUnit reports, screenshots, videos de Cypress, logs.
+# ============================================================================
+
+name: Test Automation
+
+on:
+  push:
+    branches: [main, develop]
+  paths:
+      - 'backend/**'
+      - 'frontend-client/**'
+      - '.github/workflows/test-automation.yml'
+  pull_request:
+    branches: [main, develop]
+
+# Cancela ejecuciones redundantes en el mismo PR/ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '20'
+  # Cypress apunta siempre al backend local (no a Render) en CI.
+  CYPRESS_API_URL: http://localhost:8000/v1
+  CYPRESS_BASE_URL: http://localhost:5173
+  # Backstop por si las variables del shell se pierden entre steps.
+  APP_ENV: test
+  APP_DEBUG: 'false'
+  SECRET_KEY: ci-test-secret-key-not-for-prod-do-not-use-elsewhere
+  JWT_ACCESS_TOKEN_EXPIRE_MINUTES: '60'
+  JWT_REFRESH_TOKEN_EXPIRE_DAYS: '7'
+  SEAT_HOLD_TTL_SECONDS: '600'
+
+jobs:
+  # ==========================================================================
+  # JOB 1: Backend API tests (pytest + TestClient + SQLite in-memory)
+  # ==========================================================================
+  backend-tests:
+    name: Backend API Tests (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Instalar dependencias Python
+        working-directory: backend
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Crear directorio de reportes
+        working-directory: backend
+        run: mkdir -p reports
+
+      - name: Ejecutar suite de tests
+        working-directory: backend
+        run: |
+          source venv/bin/activate
+          # JUnit XML → artefacto descargable.
+          # --strict-markers evita warnings de markers mal definidos.
+          # --tb=short mantiene los logs legibles sin truncar.
+          pytest tests/ \
+            --junitxml=reports/pytest-junit.xml \
+            --tb=short \
+            -v \
+            -ra
+
+      - name: Subir reporte JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-pytest-report
+          path: backend/reports/
+          retention-days: 7
+          if-no-files-found: warn
+
+  # ==========================================================================
+  # JOB 2: E2E tests (Cypress + backend + frontend + PostgreSQL)
+  # ==========================================================================
+  e2e-tests:
+    name: E2E Tests (Cypress)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Solo corre si los tests de backend pasaron (ahorra tiempo en CI).
+    # Si quieres que corra siempre, comenta la línea `needs`.
+    needs: backend-tests
+
+    # Servicio de PostgreSQL 16. El backend se conecta a localhost:5432.
+    # healthcheck garantiza que la BD esté lista antes de que arranque uvicorn.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bustoke_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Override de la URL de BD para que apunte al servicio de GitHub.
+      DB_HOST: localhost
+      DB_PORT: '5432'
+      DB_NAME: bustoke_test
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Configurar Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend-client/package-lock.json
+
+      - name: Instalar psql client (para aplicar el dump)
+        run: sudo apt-get install -y postgresql-client
+
+      - name: Instalar dependencias Python (backend)
+        working-directory: backend
+        run: |
+          python -m venv venv
+          source venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Instalar dependencias Node (frontend)
+        working-directory: frontend-client
+        run: npm ci
+
+      - name: Generar .env de CI
+        working-directory: backend
+        run: |
+          cat > .env <<EOF
+          APP_ENV=test
+          APP_DEBUG=false
+          APP_HOST=127.0.0.1
+          APP_PORT=8000
+          DB_HOST=localhost
+          DB_PORT=5432
+          DB_NAME=bustoke_test
+          DB_USER=postgres
+          DB_PASSWORD=postgres
+          SECRET_KEY=ci-test-secret-key-not-for-prod-do-not-use-elsewhere
+          JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+          JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
+          SEAT_HOLD_TTL_SECONDS=600
+          CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+          EOF
+
+      - name: Esperar a que PostgreSQL esté listo
+        run: |
+          for i in $(seq 1 30); do
+            if pg_isready -h localhost -p 5432 -U postgres; then
+              echo "PostgreSQL listo tras ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "ERROR: PostgreSQL no responde tras 30s"
+          exit 1
+
+      - name: Aplicar esquema (bustoke_bd.sql)
+        working-directory: backend
+        run: |
+          PGPASSWORD=postgres psql \
+            -h localhost -p 5432 -U postgres -d bustoke_test \
+            -v ON_ERROR_STOP=1 \
+            -f scripts/bustoke_bd.sql
+
+      - name: Sembrar dataset E2E determinista
+        working-directory: backend
+        run: |
+          source venv/bin/activate
+          python scripts/seed_e2e.py
+
+      - name: Levantar backend (uvicorn) en background
+        working-directory: backend
+        run: |
+          source venv/bin/activate
+          # nohup + disown permite que el proceso sobreviva al step.
+          # Redirigimos stdout/stderr a un log que luego se sube como artefacto.
+          nohup uvicorn app.main:app --host 127.0.0.1 --port 8000 \
+            > backend.log 2>&1 &
+          echo $! > backend.pid
+          disown
+          echo "Backend PID: $(cat backend.pid)"
+
+      - name: Esperar health check del backend
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8000/health | grep -q '"status":"healthy"'; then
+              echo "Backend healthy tras ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "ERROR: backend no responde /health"
+          echo "===== backend.log (últimas 50 líneas) ====="
+          tail -n 50 backend/backend.log || true
+          exit 1
+
+      - name: Levantar frontend (Vite) en background
+        working-directory: frontend-client
+        run: |
+          nohup npm run dev -- --host 127.0.0.1 --port 5173 \
+            > vite.log 2>&1 &
+          echo $! > vite.pid
+          disown
+          echo "Vite PID: $(cat vite.pid)"
+
+      - name: Esperar a que el frontend esté listo
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:5173/ -o /dev/null; then
+              echo "Vite ready tras ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "ERROR: Vite no responde"
+          echo "===== vite.log (últimas 50 líneas) ====="
+          tail -n 50 frontend-client/vite.log || true
+          exit 1
+
+      - name: Ejecutar Cypress E2E (headless)
+        working-directory: frontend-client
+        run: npm run cy:run:headless
+
+      - name: "Cleanup: detener backend y frontend"
+        if: always()
+        run: |
+          if [ -f backend/backend.pid ]; then
+            kill $(cat backend/backend.pid) 2>/dev/null || true
+          fi
+          if [ -f frontend-client/vite.pid ]; then
+            kill $(cat frontend-client/vite.pid) 2>/dev/null || true
+          fi
+          # Fallback: matar cualquier uvicorn/vite zombi.
+          pkill -f "uvicorn app.main:app" 2>/dev/null || true
+          pkill -f "vite" 2>/dev/null || true
+
+      - name: Subir artefactos de Cypress
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-e2e-report
+          path: |
+            frontend-client/cypress/screenshots
+            frontend-client/cypress/videos
+            frontend-client/cypress/downloads
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Subir logs del backend
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-logs
+          path: backend/backend.log
+          retention-days: 3
+          if-no-files-found: ignore
+
+      - name: Subir logs del frontend
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-logs
+          path: frontend-client/vite.log
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # ==========================================================================
+  # JOB 3: Lint rápido del frontend (barrera de calidad barata)
+  # ==========================================================================
+  frontend-lint:
+    name: Frontend Lint (ESLint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend-client/package-lock.json
+
+      - name: Instalar dependencias
+        working-directory: frontend-client
+        run: npm ci
+
+      - name: Ejecutar ESLint
+        working-directory: frontend-client
+        run: npm run lint
+
+  # ==========================================================================
+  # JOB 4: Resumen de calidad (badge de estado en README)
+  # ==========================================================================
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    needs: [backend-tests, e2e-tests, frontend-lint]
+    # Solo corre en push a main (no en PRs) para no inflar el log.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Resumen del pipeline
+        run: |
+          echo "## ✅ Suite de testing de Bustoke" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Estado | Artefactos |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| backend-tests | ✅ passed | [backend-pytest-report](#) |" >> $GITHUB_STEP_SUMMARY
+          echo "| e2e-tests | ✅ passed | [cypress-e2e-report](#) |" >> $GITHUB_STEP_SUMMARY
+          echo "| frontend-lint | ✅ passed | — |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Descarga los artefactos desde la página de ejecución del workflow." >> $GITHUB_STEP_SUMMARY

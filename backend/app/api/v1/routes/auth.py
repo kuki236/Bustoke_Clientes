@@ -6,14 +6,18 @@ encargan de:
 - Validar el body con Pydantic.
 - Inyectar la sesión de BD con `Depends(get_db)`.
 - Traducir errores de negocio a `HTTPException` semánticas.
+- Aplicar rate limiting por IP (FIX A07) contra brute force.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import os
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.core.security import decode_token
 from app.schemas.user_schema import (
     LoginRequest,
@@ -30,6 +34,13 @@ router = APIRouter()
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
+# Helper: el limiter se aplica solo si RATE_LIMIT_ENABLED=true.
+# En pytest se desactiva (los tests comparten la IP "testclient" y
+# los límites globales los bloquearían).
+def _rl_enabled() -> bool:
+    return os.getenv("RATE_LIMIT_ENABLED", "true").lower() != "false"
+
+
 # ============================================================================
 # POST /v1/auth/register - Registro de pasajero (RF-01)
 # ============================================================================
@@ -42,6 +53,7 @@ _bearer_scheme = HTTPBearer(auto_error=False)
     tags=["Auth"],
 )
 async def register_user(
+    request: Request,  # requerido por slowapi
     payload: RegisterSchema,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
@@ -56,7 +68,10 @@ async def register_user(
     - Email único (case-insensitive: FIX BUG-002/020).
     - Contraseña con mínimo 8 caracteres (hasheada con bcrypt).
     - El rol se fuerza a `'cliente'` (alineado al ENUM de PostgreSQL).
+    - Rate limit: 3/hora por IP (FIX A07 anti-spam).
     """
+    if _rl_enabled():
+        await limiter.check(request, "3/hour")
     service = AuthService(db)
     return service.register(payload)
 
@@ -72,12 +87,18 @@ async def register_user(
     tags=["Auth"],
 )
 async def login(
+    request: Request,  # requerido por slowapi
     payload: LoginRequest,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
     """
     Valida credenciales y emite un JWT de acceso + refresh.
+
+    Rate limit: 5/minuto por IP (FIX A07 anti-brute-force).
+    Los usuarios legítimos rara vez fallan más de 2-3 veces.
     """
+    if _rl_enabled():
+        await limiter.check(request, "5/minute")
     service = AuthService(db)
     return service.login(payload)
 
@@ -93,6 +114,7 @@ async def login(
     tags=["Auth"],
 )
 async def refresh_token(
+    request: Request,  # requerido por slowapi
     payload: RefreshRequest,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
@@ -106,7 +128,11 @@ async def refresh_token(
     (7 días por default) y es el ÚNICO mecanismo válido para obtener
     nuevos access tokens. El access_token (60 min) NO puede refrescar
     a sí mismo.
+
+    Rate limit: 30/minuto por IP (FIX A07 anti-token-brute-force).
     """
+    if _rl_enabled():
+        await limiter.check(request, "30/minute")
     try:
         decoded = decode_token(payload.refresh_token)
     except JWTError as exc:

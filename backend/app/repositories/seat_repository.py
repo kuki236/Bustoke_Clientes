@@ -202,6 +202,41 @@ class SeatRepository:
         result = self.db.execute(stmt)
         return result.rowcount or 0
 
+    def cleanup_expired_holds(self) -> int:
+        """
+        Job de limpieza en lote que marca TODOS los holds con
+        `estado='activo'` y `expira_at <= NOW()` como
+        `estado='expirado'`.
+
+        Se invoca periódicamente desde el lifespan de la app
+        (ver `app/main.py::hold_cleanup_loop`) para evitar la
+        acumulación de holds zombie tras cierres abruptos del
+        navegador (kill -9, crash, pérdida de red) que el
+        `releaseHoldsBeacon` del frontend no llega a enviar.
+
+        A diferencia de `expire_stale_holds(id_viaje, id_asiento)` —
+        que solo limpia un par específico como preparación para un
+        INSERT inmediato — esta variante barre toda la tabla y se
+        usa como job independiente.
+
+        Returns:
+            Cantidad de holds marcados como expirados.
+        """
+        from sqlalchemy import update
+
+        now = datetime.now(timezone.utc)
+        stmt = (
+            update(BloqueoTemporal)
+            .where(
+                BloqueoTemporal.estado == "activo",
+                BloqueoTemporal.expira_at <= now,
+            )
+            .values(estado="expirado")
+        )
+        result = self.db.execute(stmt)
+        self.db.commit()
+        return result.rowcount or 0
+
     def create_hold(
         self,
         id_viaje: int,
