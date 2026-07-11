@@ -29,8 +29,9 @@ from tests.api.helpers import assert_json_keys, assert_status_code
 def dni_tipo_documento_id(db_session) -> int:
     """
     Retorna el `id_tipo_documento` del DNI sembrado por la fixture
-    autouse `_seed_catalogo_documentos`. El ID lo asigna SQLite al
-    insertar, así que lo consultamos dinámicamente.
+    `db_session` (que siempre inserta DNI al inicio de cada test
+    después del TRUNCATE). El ID lo asigna PostgreSQL por la
+    secuencia del serial, así que lo consultamos dinámicamente.
     """
     from app.models import TipoDocumento
 

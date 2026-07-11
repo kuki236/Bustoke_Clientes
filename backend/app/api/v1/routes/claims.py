@@ -222,8 +222,6 @@ def respond_claim(
             detail="Reclamo no encontrado",
         )
 
-    # FIX BUG-138: autorización por rol. Re-leemos el usuario para tener
-    # `rol` e `id_agencia` actualizados.
     caller = db.get(Usuario, current_user_id)
     if caller is None or caller.rol not in {"admin_agencia", "superadmin"}:
         raise HTTPException(

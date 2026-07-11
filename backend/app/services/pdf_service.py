@@ -30,10 +30,6 @@ def _safe(value, fallback="—"):
     return str(value).strip()
 
 
-# FIX BUG-076/XBUG-018: filtra caracteres que reportlab o visores PDF
-# puedan interpretar de forma inesperada (caracteres de control, tags
-# tipo <script>, etc.). No es HTML-escape porque PDF no renderiza HTML,
-# pero limita la superficie de ataque.
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 

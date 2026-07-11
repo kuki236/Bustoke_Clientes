@@ -7,9 +7,13 @@ encargan de:
 - Inyectar la sesión de BD con `Depends(get_db)`.
 - Traducir errores de negocio a `HTTPException` semánticas.
 - Aplicar rate limiting por IP (FIX A07) contra brute force.
-"""
 
-import os
+FIX BUG rate-limit: el código original usaba `await limiter.check(...)`
+que NO existe en `slowapi.Limiter` (es API de flask-limiter, no de
+slowapi). El fix usa el decorator idiomático `@limiter.limit("X/minute")`,
+que se evalúa en import-time y respeta la flag `limiter.enabled` para
+desactivarse en pytest (`RATE_LIMIT_ENABLED=false`).
+"""
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -34,13 +38,6 @@ router = APIRouter()
 _bearer_scheme = HTTPBearer(auto_error=False)
 
 
-# Helper: el limiter se aplica solo si RATE_LIMIT_ENABLED=true.
-# En pytest se desactiva (los tests comparten la IP "testclient" y
-# los límites globales los bloquearían).
-def _rl_enabled() -> bool:
-    return os.getenv("RATE_LIMIT_ENABLED", "true").lower() != "false"
-
-
 # ============================================================================
 # POST /v1/auth/register - Registro de pasajero (RF-01)
 # ============================================================================
@@ -52,8 +49,9 @@ def _rl_enabled() -> bool:
     summary="Registrar un nuevo pasajero (rol='cliente')",
     tags=["Auth"],
 )
+@limiter.limit("3/hour")
 async def register_user(
-    request: Request,  # requerido por slowapi
+    request: Request,  # requerido por slowapi (inyecta el Request al limiter)
     payload: RegisterSchema,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
@@ -70,8 +68,6 @@ async def register_user(
     - El rol se fuerza a `'cliente'` (alineado al ENUM de PostgreSQL).
     - Rate limit: 3/hora por IP (FIX A07 anti-spam).
     """
-    if _rl_enabled():
-        await limiter.check(request, "3/hour")
     service = AuthService(db)
     return service.register(payload)
 
@@ -86,8 +82,9 @@ async def register_user(
     summary="Iniciar sesión (email + contraseña)",
     tags=["Auth"],
 )
+@limiter.limit("5/minute")
 async def login(
-    request: Request,  # requerido por slowapi
+    request: Request,  # requerido por slowapi (inyecta el Request al limiter)
     payload: LoginRequest,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
@@ -97,8 +94,6 @@ async def login(
     Rate limit: 5/minuto por IP (FIX A07 anti-brute-force).
     Los usuarios legítimos rara vez fallan más de 2-3 veces.
     """
-    if _rl_enabled():
-        await limiter.check(request, "5/minute")
     service = AuthService(db)
     return service.login(payload)
 
@@ -113,8 +108,9 @@ async def login(
     summary="Renovar tokens a partir de un refresh_token válido",
     tags=["Auth"],
 )
+@limiter.limit("30/minute")
 async def refresh_token(
-    request: Request,  # requerido por slowapi
+    request: Request,  # requerido por slowapi (inyecta el Request al limiter)
     payload: RefreshRequest,
     db: Session = Depends(get_db),
 ) -> TokenResponse:
@@ -131,8 +127,6 @@ async def refresh_token(
 
     Rate limit: 30/minuto por IP (FIX A07 anti-token-brute-force).
     """
-    if _rl_enabled():
-        await limiter.check(request, "30/minute")
     try:
         decoded = decode_token(payload.refresh_token)
     except JWTError as exc:

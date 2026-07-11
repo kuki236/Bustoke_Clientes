@@ -5,7 +5,7 @@ Este script pobla una base de datos PostgreSQL (típicamente la del
 job de CI de GitHub Actions) con un dataset MÍNIMO y de IDs
 PREDECIBLES, necesario para que los specs de Cypress puedan:
 
-  - `01-busqueda-viajes.cy.js`     → buscar por terminales 1 → 2
+  - `01-busqueda-viajes.cy.js`     → buscar por terminales 2 → 4
   - `02-seleccion-asientos.cy.js`  → ver el mapa del viaje #1
   - `03-flujo-completo.cy.js`      → flujo end-to-end completo
 
@@ -68,7 +68,7 @@ def reset_tables(session) -> None:
 def seed_minimal_dataset(session) -> dict:
     """
     Puebla el dataset mínimo. Devuelve un dict con los IDs clave
-    para que los specs de Cypress los usen (terminal 1, 2; viaje 1).
+    para que los specs de Cypress los usen (terminal 2, 4; viaje 1).
     """
 
     # --- Catálogo de documentos ---
@@ -91,9 +91,12 @@ def seed_minimal_dataset(session) -> dict:
           (1, 1, 'Lima'),
           (2, 2, 'Trujillo')
     """))
+    # Distritos alineados con `frontend-client/src/data/terminales.js`:
+    #   - Terminal Javier Prado (id 2) está en San Borja (id 1)
+    #   - Terminal Trujillo (id 4) está en Trujillo (id 2)
     session.execute(text("""
         INSERT INTO distritos (id_distrito, id_provincia, nombre) VALUES
-          (1, 1, 'La Victoria'),
+          (1, 1, 'San Borja'),
           (2, 2, 'Trujillo')
     """))
 
@@ -103,17 +106,20 @@ def seed_minimal_dataset(session) -> dict:
         VALUES (1, '20100234561', 'CRUZ DEL SUR S.A.C.', 'activa')
     """))
 
-    # --- Terminales (IDs 1 y 2 son los que usan los specs de Cypress) ---
+    # --- Terminales ---
+    # El frontend resuelve "Lima" → id 2 (Terminal Javier Prado) via
+    # CIUDAD_PRINCIPAL en terminales.js. Sembramos con id 2 para que
+    # el Autocomplete del frontend encuentre la ruta Lima→Trujillo.
     session.execute(text("""
         INSERT INTO terminales (id_terminal, id_distrito, nombre, direccion) VALUES
-          (1, 1, 'Terminal Lima Centro', 'Av. Javier Prado 1109'),
-          (2, 2, 'Terminal Trujillo',     'Panamericana Norte Km 558')
+          (2, 1, 'Terminal Javier Prado - Cruz del Sur', 'Av. Javier Prado Este 1109, San Borja - Lima'),
+          (4, 2, 'Terminal Terrestre de Trujillo', 'Panamericana Norte Km 558, Trujillo')
     """))
 
-    # --- Ruta Lima → Trujillo ---
+    # --- Ruta Lima (Javier Prado, id 2) → Trujillo (id 4) ---
     session.execute(text("""
         INSERT INTO rutas (id_ruta, id_agencia, id_terminal_origen, id_terminal_destino, tarifa_base)
-        VALUES (1, 1, 1, 2, 70.00)
+        VALUES (1, 1, 2, 4, 70.00)
     """))
 
     # --- Tarifas por tipo de servicio ---
@@ -169,8 +175,8 @@ def seed_minimal_dataset(session) -> dict:
     # de unicidad entre ejecuciones consecutivas del CI.
 
     return {
-        "id_terminal_origen": 1,
-        "id_terminal_destino": 2,
+        "id_terminal_origen": 2,
+        "id_terminal_destino": 4,
         "id_viaje": 1,
         "fecha_salida": fecha_salida.isoformat(),
     }
@@ -238,7 +244,7 @@ def main() -> int:
             "provincias": 2,
             "distritos": 2,
             "agencias": 1,
-            "terminales": 2,
+            "terminales": 4,
             "rutas": 1,
             "tarifas_ruta": 2,
             "buses": 1,

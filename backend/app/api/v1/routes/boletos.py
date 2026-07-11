@@ -66,7 +66,6 @@ async def validar_boleto(
        hace commit y retorna el mensaje de bienvenida con el
        `id_asiento` para asignación en el bus.
     """
-# FIX XBUG-006: row lock pesimista para serializar embarques
     stmt = (
         select(Boleto)
         .where(Boleto.codigo_qr == codigo_qr)
@@ -100,7 +99,6 @@ async def validar_boleto(
             ),
         }
 
-    # FIX BUG-102: validar ventana temporal del QR.
     viaje: Viaje | None = boleto.viaje
     if viaje is not None and viaje.fecha_hora_salida is not None:
         ahora = datetime.now()
@@ -161,8 +159,6 @@ async def get_historial_boletos(
         chofer = viaje.chofer if viaje else None
         asiento: Asiento | None = b.asiento
 
-        # FIX BUG-124: si el boleto fue cancelado o el viaje fue
-        # cancelado por la agencia, el status lo refleja.
         if b.estado == "cancelado":
             status_label = "Cancelado"
         elif viaje and viaje.estado == "cancelado":

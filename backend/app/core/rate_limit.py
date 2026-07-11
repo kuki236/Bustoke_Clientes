@@ -16,26 +16,6 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 
-# FIX A07: el limiter existe SIEMPRE, pero la aplicación de los
-# límites se controla con `enabled` según el entorno.
-#
-# - En pytest, `TestClient` no setea una IP real → todas las requests
-#   comparten la key 'testclient' y los límites bloquean los tests.
-#   Por eso, los routers usan `if settings.RATE_LIMIT_ENABLED`
-#   antes de aplicar el decorator (ver conftest.py).
-#
-# - En producción / staging, `RATE_LIMIT_ENABLED=true` (default).
-
-
-def _is_rate_limit_enabled() -> bool:
-    """
-    Lee la variable de entorno en cada llamada (NO en import-time)
-    para que los tests puedan desactivarla vía `os.environ` ANTES
-    de que se importen los routers.
-    """
-    return os.getenv("RATE_LIMIT_ENABLED", "true").lower() != "false"
-
-
 # Singleton del limiter. `key_func=get_remote_address` usa la IP
 # del cliente (considera X-Forwarded-For si hay un proxy reverso).
 limiter = Limiter(
@@ -50,4 +30,22 @@ limiter = Limiter(
 )
 
 
-__all__ = ["limiter", "_is_rate_limit_enabled"]
+def _sync_enabled_from_env() -> None:
+    """
+    Sincroniza `limiter.enabled` con la variable de entorno
+    `RATE_LIMIT_ENABLED`. Se ejecuta al import-time de este módulo
+    (es decir, una vez por proceso de pytest / uvicorn).
+
+    Los tests configuran `RATE_LIMIT_ENABLED=false` ANTES de
+    importar la app (ver `tests/api/conftest.py:34`), por lo que al
+    instanciarse `limiter`, `enabled` ya refleja el valor correcto.
+    En producción queda en `True` (default de slowapi).
+    """
+    enabled = os.getenv("RATE_LIMIT_ENABLED", "true").lower() != "false"
+    limiter.enabled = enabled
+
+
+_sync_enabled_from_env()
+
+
+__all__ = ["limiter"]

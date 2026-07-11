@@ -62,7 +62,6 @@ class AuthService:
 
         Devuelve un `TokenResponse` listo para entregar al frontend.
         """
-# FIX BUG-002/020: normalizar email a minúsculas antes de validar
         normalized_email = normalize_email(payload.email)
 
         # 1. Validación de unicidad de email (pre-check; la BD también

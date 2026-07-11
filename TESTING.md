@@ -1,23 +1,22 @@
 # 🧪 Suite de Pruebas Automatizadas — Bustoke
 
-Suite completa de testing E2E para la plataforma Bustoke, organizada en dos
-capas independientes que se ejecutan por separado:
+Suite completa de testing E2E para la plataforma Bustoke, organizada en una
+capa principal de API más la suite de UI:
 
 | Capa | Stack | Cobertura | Carpeta |
 |---|---|---|---|
-| **API** | `pytest` + `TestClient` (FastAPI) + SQLite in-memory | Health, Auth, Travels, Seats, Claims (ciclo de vida completo) | [`backend/tests/api/`](backend/tests/api/) |
+| **API** | `pytest` + `TestClient` (FastAPI) + **PostgreSQL real** (`bustoke_test`) | Health, Auth, Travels, Seats, Claims, Bookings, Hold cleanup, Security headers & secret entropy | [`backend/tests/api/`](backend/tests/api/) |
 | **UI** | `Cypress 14` + selectores `aria-label`/`placeholder` | Búsqueda de viajes + Selección y bloqueo de asiento | [`frontend-client/cypress/`](frontend-client/cypress/) |
 
 ## 📊 Resumen ejecutivo
 
 | Métrica | Valor |
 |---|---|
-| Tests API (esta suite) | **55** ✅ |
-| Tests API (suite existente sin regresión) | **32** ✅ |
+| Tests API (suite única consolidada) | **101** ✅ |
 | Tests UI (specs Cypress) | **9** |
 | Tiempo de ejecución API | ~70s |
-| Aislamiento de datos | Transacción con rollback automático |
-| Cobertura de endpoints `/v1` | `auth`, `travels`, `seats`, `claims`, `health` |
+| Aislamiento de datos | `TRUNCATE TABLE ... RESTART IDENTITY CASCADE` por test (PostgreSQL real) |
+| Cobertura de endpoints `/v1` | `auth`, `travels`, `seats`, `claims`, `bookings`, `health` |
 
 ## 🚀 Ejecución rápida
 
@@ -30,16 +29,23 @@ python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
 
-# Correr SOLO la nueva suite de API:
+# Prerrequisito para los tests: tener PostgreSQL local con la BD
+# `bustoke_test` cargada con el esquema de `bustoke_bd.sql`:
+#   psql -U postgres -h localhost -d bustoke_test -f ../bustoke_bd.sql
+
+# Correr la suite completa de API:
 pytest tests/api -v
 
-# Correr TODA la suite del backend (nueva + existente):
+# Alias equivalente (toda la suite del backend):
 pytest tests/ -v
 ```
 
-No requiere PostgreSQL ni internet: usa **SQLite in-memory** con un motor
-SQLAlchemy fresco por sesión, y revierte todos los cambios con
-`transaction.rollback()` al final de cada test (ver `conftest.py:78`).
+Usa **PostgreSQL real** (BD `bustoke_test` en `localhost:5432`) con un
+`TRUNCATE TABLE ... RESTART IDENTITY CASCADE` al inicio de cada test
+para garantizar idempotencia sin tener que recrear el esquema. La
+conexión se comparte entre el `db_session` del test y la sesión que
+abre el código de FastAPI, evitando problemas de visibilidad entre
+transacciones (ver `conftest.py:100-145`).
 
 ### Frontend (Cypress)
 
@@ -82,10 +88,13 @@ Bustoke_Clientes/
 │   ├── conftest.py              # Fixtures idempotentes (engine, db_session, client, seed_basico, registrar_usuario)
 │   ├── helpers.py               # Aserciones reutilizables (assert_status_code, assert_json_keys, ...)
 │   ├── test_health_api.py       # 2 tests: /, /health
-│   ├── test_auth_api.py         # 11 tests: register, login, me, refresh
-│   ├── test_travels_api.py      # 11 tests: search (con filtros), get, mapa asientos
-│   ├── test_seats_api.py        # 12 tests: hold, release, release-sync + contratos
-│   └── test_claims_api.py       # 19 tests: ciclo de vida + autorización por roles
+│   ├── test_auth_api.py         # 19 tests: register, login, me, refresh, enrichment (legacy migrados)
+│   ├── test_travels_api.py      # 21 tests: search (con filtros completos), get, mapa asientos
+│   ├── test_seats_api.py        # 13 tests: hold, release, release-sync + contratos 405
+│   ├── test_claims_api.py       # 16 tests: ciclo de vida + autorización por roles
+│   ├── test_bookings_api.py     # 6 tests: TC-BB-017/018/019 + TC-RB-002 (idempotencia MP)
+│   ├── test_hold_cleanup.py     # 7 tests: job de expiración (FIX TC-RB-003)
+│   └── test_security_api.py     # 17 tests: headers CSP/HSTS, rate limit, secret entropy
 │
 ├── frontend-client/cypress/
 │   ├── support/
@@ -109,11 +118,13 @@ Bustoke_Clientes/
 
 | Decisión | Por qué |
 |---|---|
-| **Transacción con rollback por test** (`conftest.py:78-110`) | Garantiza idempotencia sin TRUNCATE. Resuelve el riesgo de `uq_usuarios_email_lower` al correr specs consecutivamente. |
-| **Savepoint para `db.commit()` del código de app** (`conftest.py:96-101`) | El código de FastAPI hace `commit()` en cada endpoint. Sin savepoint, eso confirmaría la transacción externa y rompería el aislamiento. |
-| **`StaticPool` en el engine** (`conftest.py:65-70`) | SQLite in-memory crea una BD nueva por conexión; `StaticPool` reutiliza la misma conexión en todos los `Session` del test. |
-| **Aserciones de contrato (DELETE→405)** | La API de Bustoke no expone DELETE en `/v1/claims/{id}`. Verificamos explícitamente que devuelva 405 para detectar acoplamientos accidentales. |
+| **PostgreSQL real (`bustoke_test`) con `TRUNCATE ... CASCADE` por test** (`conftest.py:100-145`) | Reproduce fielmente el comportamiento de la BD de producción (enums nativos, vistas, CHECK constraints, FK CASCADE). El TRUNCATE al inicio de cada test garantiza idempotencia sin tener que recrear el esquema. Resuelve el riesgo de `uq_usuarios_email_lower` y `uq_pasajeros_numero_documento` entre runs consecutivos. |
+| **Conexión compartida entre `db_session` y la app** (`conftest.py:155-185`) | Reutilizar la misma conexión de SQLAlchemy evita problemas de visibilidad cross-connection (READ COMMITTED) y de `with self.db.begin():` en servicios que abren transacción explícita (`booking_service`). Antes/después de cada request se hace `commit() + expire_all()` para limpiar el estado. |
+| **`NullPool` en el engine** (`conftest.py:78-83`) | Cada conexión se abre y cierra por uso, evitando bloqueos con sesiones concurrentes en el mismo proceso de pytest. |
+| **`RATE_LIMIT_ENABLED=false` + `HOLD_CLEANUP_DISABLED=true`** (env vars en conftest) | El limiter de slowapi compartiría la key `testclient` y bloquearía los tests. El job de cleanup en background interferiría con el TRUNCATE por test. |
+| **Aserciones de contrato (DELETE→405)** | La API de Bustoke no expone DELETE en `/v1/claims/{id}` ni en `/v1/seats/*`. Verificamos explícitamente que devuelvan 405 para detectar acoplamientos accidentales. |
 | **BUG-138 en `test_responder_reclamo_con_estado_invalido`** | El `validation_exception_handler` global tiene un bug conocido de serialización con `ValueError`. El test verifica el contrato (input inválido ⇒ rechazo) sin acoplarse al status code exacto. TODO documentado en el test. |
+| **BUG rate-limit en `app/api/v1/routes/auth.py:74,101,135`** | ✅ **ARREGLADO 2026-07-11**: el código original usaba `limiter.check(request, "X/minute")` que NO existe en slowapi 0.1.9 (es API de flask-limiter, no de slowapi). El fix usa el decorator idiomático `@limiter.limit("X/minute")` y sincroniza `limiter.enabled` con la env var `RATE_LIMIT_ENABLED` en `app/core/rate_limit.py:_sync_enabled_from_env`. Los tests verifican la flag, no el branch. |
 
 ### Frontend
 

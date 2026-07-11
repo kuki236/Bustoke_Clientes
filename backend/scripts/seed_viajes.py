@@ -228,6 +228,24 @@ def run(args):
             for bus_id, agency_id in buses:
                 buses_by_agency[agency_id].append(bus_id)
 
+            # Agrupar terminales por ciudad para resolver pares de
+            # (origen, destino) sin depender del orden ni de la
+            # presencia de terminales concretos (ej. Ica no siempre
+            # existe en la BD). `terminals_by_city['lima']` = [1, 2, 3].
+            terminals_by_city = defaultdict(list)
+            for tid in tids:
+                city = CITY_BY_TERMINAL.get(tid)
+                if city:
+                    terminals_by_city[city].append(tid)
+            # Garantizar al menos los terminales de Lima (los IDs
+            # principales son 1, 2, 3 según el dump).
+            if not terminals_by_city.get('lima'):
+                terminals_by_city['lima'] = [tid for tid in tids
+                                             if CITY_BY_TERMINAL.get(tid) == 'lima']
+                if not terminals_by_city['lima']:
+                    # Fallback extremo: usar todos los terminales como Lima.
+                    terminals_by_city['lima'] = tids
+
             cur.execute('SELECT id_ruta, id_agencia, id_terminal_origen, id_terminal_destino FROM rutas')
             existing_rutas = cur.fetchall()
             existing_set = {(a, o, d) for _, a, o, d in existing_rutas}
@@ -248,16 +266,24 @@ def run(args):
                 if not agencias_sirven:
                     continue
 
-                # Determinar terminales específicos
+                # Determinar terminales específicos. Usar el agrupado
+                # pre-computado para evitar StopIteration cuando la
+                # ciudad no tiene terminales en la BD.
                 if city_o == 'lima':
-                    orig_terminals = LIMA_TERMINALS_MAIN
+                    orig_terminals = LIMA_TERMINALS_MAIN or terminals_by_city['lima']
                 else:
-                    orig_terminals = [next(t for t in tids if CITY_BY_TERMINAL.get(t) == city_o)]
+                    orig_terminals = terminals_by_city.get(city_o, [])
+                    if not orig_terminals:
+                        # Ciudad no tiene terminales (ej. Ica si el
+                        # dump no la incluye). Saltar este par.
+                        continue
 
                 if city_d == 'lima':
-                    dest_terminals = LIMA_TERMINALS_MAIN
+                    dest_terminals = LIMA_TERMINALS_MAIN or terminals_by_city['lima']
                 else:
-                    dest_terminals = [next(t for t in tids if CITY_BY_TERMINAL.get(t) == city_d)]
+                    dest_terminals = terminals_by_city.get(city_d, [])
+                    if not dest_terminals:
+                        continue
 
                 precio_base = CITY_PRICES.get((city_o, city_d), 50)
 

@@ -100,7 +100,6 @@ def _layout(content: str) -> str:
 
 
 def _render_compra_html(boleto: dict) -> str:
-    # FIX BUG-076/XBUG-017-020: escapar TODO el contenido dinámico.
     nombres = _safe_text(boleto.get("nombres"))
     apellido_paterno = _safe_text(boleto.get("apellido_paterno"))
     codigo_reserva = _safe_text(boleto.get("codigo_reserva", boleto.get("codigo_qr", "")))
@@ -148,7 +147,6 @@ def _render_compra_html(boleto: dict) -> str:
 
 
 def _render_claim_received_html(reclamo: dict) -> str:
-    # FIX BUG-076/XBUG-019: escapar motivo, detalle.
     id_reclamo = int(reclamo.get("id_reclamo") or 0)
     motivo = _safe_text(reclamo.get("motivo"))
     detalle = _safe_text(reclamo.get("detalle"))
@@ -178,7 +176,6 @@ def _render_claim_received_html(reclamo: dict) -> str:
 
 
 def _render_claim_responded_html(reclamo: dict, respuesta: str, estado: str) -> str:
-    # FIX BUG-076/XBUG-020: escapar respuesta y estado.
     id_reclamo = int(reclamo.get("id_reclamo") or 0)
     respuesta_safe = _safe_text(respuesta)
     estado_safe = _safe_text(estado)
