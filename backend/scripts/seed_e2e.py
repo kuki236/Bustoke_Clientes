@@ -237,20 +237,20 @@ def main() -> int:
         session.commit()
         print(f"[seed_e2e] Dataset insertado: {ids}")
 
-    # Ajustar secuencias SERIAL para evitar colisiones futuras.
-    reset_sequences(session, {
-        "tipos_documento": 3,
-        "departamentos": 2,
-        "provincias": 2,
-        "distritos": 2,
-        "agencias": 1,
-        "terminales": 4,
-        "rutas": 1,
-        "tarifas_ruta": 2,
-        "buses": 1,
-        "asientos": 5,
-        "viajes": 1,
-    })
+        # Ajustar secuencias SERIAL para evitar colisiones futuras.
+        reset_sequences(session, {
+            "tipos_documento": 3,
+            "departamentos": 2,
+            "provincias": 2,
+            "distritos": 2,
+            "agencias": 1,
+            "terminales": 4,
+            "rutas": 1,
+            "tarifas_ruta": 2,
+            "buses": 1,
+            "asientos": 5,
+            "viajes": 1,
+        })
         session.commit()
         print("[seed_e2e] Secuencias SERIAL reajustadas.")
         return 0
