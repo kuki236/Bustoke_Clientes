@@ -3,25 +3,32 @@ Fixtures compartidas para la suite de API (`backend/tests/api`).
 
 Diseño de idempotencia:
 ------------------------
-Cada test que necesite persistencia usa la fixture `db_session`, que
-se monta sobre una conexión SQLAlchemy envuelta en una transacción
-externa (`connection.begin()`). Al finalizar el test (`yield`), la
-transacción se revierte con `transaction.rollback()`, garantizando
-que la base de datos quede en su estado original incluso si el test
-falla a mitad de camino. Esto evita por completo errores de unicidad
-(`uq_usuarios_email_lower`, `uq_pasajeros_numero_documento`, etc.)
-al correr los tests de manera consecutiva.
+Cada test que necesite persistencia usa la fixture `db_session`, que se
+monta sobre una conexión SQLAlchemy contra la base de datos PostgreSQL
+local `bustoke_test`. Al iniciar cada test se ejecuta
+`TRUNCATE ... RESTART IDENTITY CASCADE` sobre las 30 tablas del esquema
+para garantizar que los tests sean independientes y no acumulen filas
+de ejecuciones anteriores (sin esto, las restricciones de unicidad
+`uq_usuarios_email_lower` y `uq_pasajeros_numero_documento` rompen los
+segundos runs).
 
 Adicionalmente:
 - `engine` y `session_factory` se crean UNA vez por sesión de pytest
-  y se eliminan al final, evitando fugas de conexiones SQLite.
+  (`scope="session"`) y se eliminan al final, evitando fugas de
+  conexiones PostgreSQL.
 - `client` sobrescribe `app.dependency_overrides[get_db]` para que el
-  código de la aplicación use la misma `session_factory` transaccional.
+  código de la aplicación use el mismo engine (las inserciones que
+  hace `db_session` son visibles para la API y viceversa, ya que
+  PostgreSQL es persistente y todas las sesiones del test comparten
+  la misma BD).
 - `app.dependency_overrides.clear()` se ejecuta siempre, aunque el
   test lance excepciones, para no contaminar otros módulos.
 - RATE_LIMIT_ENABLED se setea en 'false' al inicio para que el
   limiter de slowapi NO bloquee las requests de pytest (todas
   comparten la key 'testclient' y se activarían los límites).
+- HOLD_CLEANUP_DISABLED se setea en 'true' para que el job de
+  background en `app/main.py::lifespan` no interfiera con el
+  TRUNCATE de cada test.
 """
 
 import datetime as dt
@@ -41,9 +48,9 @@ os.environ.setdefault("HOLD_CLEANUP_DISABLED", "true")
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool
 
 # Importa todos los modelos para que se registren en Base.metadata
 import app.models  # noqa: F401
@@ -70,19 +77,28 @@ from app.models import (
 # ENGINE / SESSION — compartidos a nivel de sesión de pytest
 # ============================================================================
 
+# Conexión hardcoded a la BD de tests local (PostgreSQL 18).
+# Si en el futuro se quiere apuntar a otra instancia, exportar
+# TEST_DATABASE_URL en el entorno antes de invocar pytest.
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql+psycopg2://postgres:portugal@localhost:5432/bustoke_test",
+)
+
+
 @pytest.fixture(scope="session")
 def engine():
     """
-    Engine SQLite in-memory con `StaticPool` para que la conexión
-    sea única y reutilizable entre distintos `Session` (de lo
-    contrario SQLite crea una BD nueva por cada conexión).
+    Engine PostgreSQL contra `bustoke_test`. Se usa `NullPool` para
+    que cada conexión se abra y cierre por uso (evita bloqueos con
+    sesiones concurrentes en el mismo proceso de pytest).
     """
     eng = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
+        TEST_DATABASE_URL,
+        poolclass=NullPool,
+        pool_pre_ping=True,
+        future=True,
     )
-    Base.metadata.create_all(eng)
     yield eng
     eng.dispose()
 
@@ -93,63 +109,141 @@ def session_factory(engine):
 
 
 # ============================================================================
-# SESIÓN TRANSACCIONAL POR TEST — rollback al finalizar
+# LIMPIEZA POR TEST — TRUNCATE CASCADE + reinserción de catálogos
 # ============================================================================
+
+# Orden inverso de dependencias FK para TRUNCATE ... CASCADE.
+# (CASCADE resuelve las dependencias, pero tener la lista explícita
+# permite TRUNCATE selectivo si fuera necesario en el futuro).
+_TRUNCATE_TABLES = [
+    "audit_logs",
+    "manifiestos_sutran",
+    "mensajes_reclamo",
+    "reclamos",
+    "tickets_soporte",
+    "reembolsos",
+    "pagos",
+    "boletos",
+    "bloqueos_temporales",
+    "historial_estados_viaje",
+    "viajes",
+    "tarifas_ruta",
+    "rutas",
+    "asientos",
+    "buses",
+    "choferes",
+    "agencias_terminales",
+    "terminales",
+    "distritos",
+    "provincias",
+    "departamentos",
+    "liquidaciones_agencia",
+    "suscripciones",
+    "planes",
+    "configuracion_comisiones",
+    "api_keys",
+    "usuarios",
+    "pasajeros",
+    "tipos_documento",
+    "agencias",
+]
+
 
 @pytest.fixture
 def db_session(engine) -> Iterator[Session]:
     """
-    Sesión SQLAlchemy envuelta en una transacción que se revierte al
-    final del test. Esto garantiza idempotencia entre tests sin
-    requerir `TRUNCATE` ni reinicios de tabla.
+    Sesión SQLAlchemy por test. Antes de ceder el control, vacía
+    las 30 tablas con `TRUNCATE ... RESTART IDENTITY CASCADE` y
+    re-siembra el catálogo mínimo de `TipoDocumento` (DNI), que es
+    el ÚNICO catálogo requerido por el endpoint público
+    `/v1/auth/register` y que el código de la app NO crea solo.
 
-    Implementación: usamos una conexión fresca del engine, abrimos
-    una transacción manualmente y la revertimos al final. Si el
-    código de la app hace `commit()` durante el request, se abre
-    un SAVEPOINT en lugar de confirmar la transacción externa
-    (gracias al listener `after_transaction_end`).
+    La geografía (Departamentos/Provincias/Distritos) la siembra
+    cada test que la necesite (a través de `seed_basico` o de
+    fixtures equivalentes), con `INSERT ... ON CONFLICT DO NOTHING`
+    para idempotencia.
+
+    Estrategia:
+    1. Abrir una conexión fresca del engine (NullPool ⇒ sin
+       reutilización con la app).
+    2. Truncar todas las tablas en una transacción autocommiteada.
+    3. Insertar el DNI como catálogo base y commitear.
+    4. Exponer la `Session` al test. La conexión se mantiene abierta
+       durante todo el test para que `client` la reuse.
+    5. Al finalizar el test, cerrar la sesión y la conexión.
+
+    Si un test hace `db_session.commit()` durante su ejecución, los
+    cambios persisten y serán truncados por el siguiente test.
     """
     connection = engine.connect()
-    transaction = connection.begin()
     session = Session(bind=connection, autoflush=False, expire_on_commit=False)
-
-    # Si el código de la aplicación hace `db.commit()` (FastAPI lo hace
-    # en cada endpoint vía `get_db`), no queremos que la transacción
-    # externa se confirme. Interceptamos `commit` y abrimos un savepoint.
-    @event.listens_for(session, "after_transaction_end")
-    def _restart_savepoint(sess, trans):
-        if trans.nested and not trans._parent.nested:
-            sess.expire_all()
-            sess.begin_nested()
-
     try:
+        # 1) TRUNCATE todo
+        tables_csv = ", ".join(_TRUNCATE_TABLES)
+        session.execute(
+            text(f"TRUNCATE TABLE {tables_csv} RESTART IDENTITY CASCADE")
+        )
+        session.commit()
+
+        # 2) Re-siembra de catálogo base: TipoDocumento DNI.
+        # Es lo único que necesita `/v1/auth/register` para resolver
+        # el string "DNI" → `id_tipo_documento`. La geografía, agencias,
+        # buses, etc. las siembra cada test que las necesite.
+        session.add(TipoDocumento(nombre="DNI", longitud_exacta=8))
+        session.commit()
+
         yield session
     finally:
         session.close()
-        if transaction.is_active:
-            transaction.rollback()
         connection.close()
 
 
 # ============================================================================
-# CLIENTE FASTAPI — usa la sesión transaccional
+# CLIENTE FASTAPI — reutiliza la conexión de `db_session`
 # ============================================================================
 
 @pytest.fixture
 def client(db_session) -> Iterator[TestClient]:
     """
-    Cliente HTTP de FastAPI. Cada request abre una sesión SQLAlchemy
-    nueva (gracias a `get_db` con yield), pero como SQLite in-memory
-    comparte la conexión base del engine, los datos sembrados con
-    `db_session` son visibles para la API.
+    Cliente HTTP de FastAPI que REUTILIZA la misma conexión de la
+    sesión `db_session` del test.
+
+    Esto es CRÍTICO: con PostgreSQL, dos conexiones distintas ven
+    los commits de la otra (READ COMMITTED), pero el mapa de
+    identidad de SQLAlchemy se mantiene por sesión. Si la sesión
+    de la API y la de `db_session` son distintas, los objetos
+    sembrados por el test pueden no ser visibles para la app, y
+    los inserts que hace la app no refrescan el identity map del
+    test (lo que rompe aserciones tipo `db_session.query(...)`).
+
+    Al compartir conexión:
+    - Una sola transacción implícita por request.
+    - Los datos sembrados por `db_session` son inmediatamente
+      visibles para los queries de la app.
+    - Los commits de la app se ven en `db_session` tras un
+      `expire_all()` o un nuevo query.
     """
 
     def override_get_db() -> Iterator[Session]:
-        s = Session(bind=db_session.get_bind(), autoflush=False, expire_on_commit=False)
+        # Reutilizamos la sesión `db_session` (misma conexión).
+        # Antes del yield, nos aseguramos de que NO haya una
+        # transacción abierta, porque algunos servicios de la app
+        # usan `with self.db.begin():` (context manager) que
+        # falla con `InvalidRequestError: A transaction is
+        # already begun on this Session` si la sesión ya tiene
+        # una transacción implícita abierta.
+        if db_session.in_transaction():
+            db_session.commit()
+        db_session.expire_all()
         try:
-            yield s
+            yield db_session
         finally:
-            s.close()
+            # Tras la request, cerramos cualquier transacción que
+            # haya dejado la app para que el test pueda seguir
+            # operando.
+            if db_session.in_transaction():
+                db_session.commit()
+            db_session.expire_all()
 
     app.dependency_overrides[get_db] = override_get_db
     try:
@@ -160,22 +254,8 @@ def client(db_session) -> Iterator[TestClient]:
 
 
 # ============================================================================
-# SEMILLA DE CATÁLOGO — DNI + geografía + agencia + bus + viaje
+# SEMILLA DE CATÁLOGO — agencia + bus + viaje
 # ============================================================================
-
-@pytest.fixture(autouse=True)
-def _seed_catalogo_documentos(db_session):
-    """
-    Siembra el catálogo mínimo de `tipos_documento` requerido por el
-    endpoint público `/v1/auth/register`. El flag `autouse=True` hace
-    que esté disponible en todos los tests sin tener que declararlo
-    explícitamente. La transacción se revierte al final del test, por
-    lo que no contamina tests posteriores.
-    """
-    if not db_session.query(TipoDocumento).filter(TipoDocumento.nombre == "DNI").first():
-        db_session.add(TipoDocumento(nombre="DNI", longitud_exacta=8))
-        db_session.flush()
-
 
 @pytest.fixture
 def seed_basico(db_session):
@@ -185,27 +265,41 @@ def seed_basico(db_session):
     Devuelve un dict con IDs primitivos (no objetos ORM) para evitar
     el `DetachedInstanceError` al cerrar la sesión.
 
-    IMPORTANTE: como vive dentro de la transacción de `db_session`,
-    el `rollback` automático del final del test la limpia. Esto
-    garantiza que correr los tests consecutivamente no genere
-    conflictos de unicidad.
+    IMPORTANTE: ahora vive dentro del ciclo de vida de `db_session`
+    (PostgreSQL real), por lo que las inserciones PERSISTEN durante
+    el test. El `TRUNCATE` automático al inicio de cada test garantiza
+    idempotencia entre runs consecutivos.
     """
 
     def _seed():
-        # --- Geografía ---
-        depto_lima = Departamento(id_departamento=1, nombre="Lima")
-        depto_la_libertad = Departamento(id_departamento=2, nombre="La Libertad")
-        db_session.add_all([depto_lima, depto_la_libertad])
+        # --- Geografía (idempotente: ON CONFLICT DO NOTHING) ---
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        deptos = [
+            {"id_departamento": 1, "nombre": "Lima"},
+            {"id_departamento": 2, "nombre": "La Libertad"},
+        ]
+        db_session.execute(
+            pg_insert(Departamento).values(deptos).on_conflict_do_nothing()
+        )
         db_session.flush()
 
-        prov_lima = Provincia(id_provincia=1, id_departamento=1, nombre="Lima")
-        prov_trujillo = Provincia(id_provincia=2, id_departamento=2, nombre="Trujillo")
-        db_session.add_all([prov_lima, prov_trujillo])
+        provs = [
+            {"id_provincia": 1, "id_departamento": 1, "nombre": "Lima"},
+            {"id_provincia": 2, "id_departamento": 2, "nombre": "Trujillo"},
+        ]
+        db_session.execute(
+            pg_insert(Provincia).values(provs).on_conflict_do_nothing()
+        )
         db_session.flush()
 
-        dist_lima = Distrito(id_distrito=1, id_provincia=1, nombre="La Victoria")
-        dist_trujillo = Distrito(id_distrito=5, id_provincia=2, nombre="Trujillo")
-        db_session.add_all([dist_lima, dist_trujillo])
+        dists = [
+            {"id_distrito": 1, "id_provincia": 1, "nombre": "La Victoria"},
+            {"id_distrito": 5, "id_provincia": 2, "nombre": "Trujillo"},
+        ]
+        db_session.execute(
+            pg_insert(Distrito).values(dists).on_conflict_do_nothing()
+        )
         db_session.flush()
 
         # --- Agencia ---
@@ -274,7 +368,7 @@ def seed_basico(db_session):
             rampa_embarque="Rampa 3",
         )
         db_session.add(viaje)
-        db_session.flush()
+        db_session.commit()
 
         return {
             "id_agencia": agencia.id_agencia,

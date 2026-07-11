@@ -17,7 +17,6 @@ from tests.api.helpers import assert_status_code
 
 
 # ============================================================================
-# FIX A05: Security headers en TODAS las respuestas
 # ============================================================================
 
 def test_respuesta_root_incluye_x_frame_options(client):
@@ -103,15 +102,12 @@ def test_headers_seguridad_aplican_a_422(client):
     assert_status_code(r, 422)
     assert r.headers.get("x-frame-options") == "DENY"
     assert r.headers.get("x-content-type-options") == "nosniff"
-    # FIX A02 adicional: el body del 422 debe ser JSON-serializable
-    # (no debe lanzar TypeError por ValueError objects no serializables).
     body = r.json()
     assert "detail" in body
     assert "errors" in body
 
 
 # ============================================================================
-# FIX A02: Validación de entropía del SECRET_KEY
 # ============================================================================
 
 def test_secret_key_source_ok_con_secreto_aleatorio():
@@ -216,7 +212,6 @@ def test_settings_acepta_secret_key_aleatorio_en_produccion(monkeypatch):
 
 
 # ============================================================================
-# FIX A07: Rate limiting (smoke test del limiter instalado)
 # ============================================================================
 
 def test_limiter_esta_instalado_en_la_app():

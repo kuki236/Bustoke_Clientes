@@ -15,7 +15,6 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 # ============================================================================
-# FIX A02 (OWASP): validación de entropía del SECRET_KEY
 # ============================================================================
 # NIST SP 800-117 recomienda ≥ 128 bits para HMAC-SHA256. Usamos 256 bits
 # como margen para protegernos contra ataques de diccionario sobre
@@ -94,12 +93,6 @@ class Settings(BaseSettings):
     RATE_LIMIT_ENABLED: bool = True
 
     # ---------- CORS ----------
-    # FIX BUG-010/XBUG-028: por default permitimos los 3 puertos
-    # comunes del frontend dev (3000 = CRA, 5173 = Vite, 4173 = Vite preview).
-    # `NoDecode` desactiva el parseo JSON automático de pydantic-settings
-    # para que el valor CSV del env (ej: "http://a,http://b") llegue
-    # como string al field_validator `_split_cors` en lugar de fallar
-    # con `SettingsError: error parsing value`.
     CORS_ORIGINS: Annotated[List[str], NoDecode] = Field(
         default_factory=lambda: [
             "http://localhost:3000",

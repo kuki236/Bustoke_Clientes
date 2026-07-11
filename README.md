@@ -227,12 +227,28 @@ POST   /v1/billing/settlements
 
 ## Tests
 
+La suite de backend (101 tests) vive en `backend/tests/api/` y corre
+contra la base de datos PostgreSQL local `bustoke_test` con
+`TRUNCATE ... RESTART IDENTITY CASCADE` por test. La suite de UI
+(9 specs Cypress) vive en `frontend-client/cypress/`.
+
 ```bash
+# 1) Cargar el esquema en la BD de tests (solo la primera vez):
+psql -U postgres -d bustoke_test -f bustoke_bd.sql
+
+# 2) Backend
 cd backend
-pytest
+pytest tests/ -v
+
+# 3) Frontend (Cypress, requiere backend + Vite levantados)
+cd ../frontend-client
+npm install
+npm run dev          # en otra terminal
+npm run cy:run       # headless
 ```
 
-Los tests viven en `backend/tests/`.
+Detalles completos de la suite, decisiones de diseño y cobertura por
+endpoint en [`TESTING.md`](TESTING.md).
 
 ## Convenciones del proyecto
 

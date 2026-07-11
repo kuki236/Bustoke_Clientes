@@ -75,12 +75,12 @@ Es un **monorepo** con tres componentes:
 ```
         ▲
        ╱ ╲
-      ╱ E2╲          Cypress (9 specs) · frontend ↔ backend
-     ╱─────╲
-    ╱  API  ╲       pytest + TestClient (118 tests) · DB transaccional
-   ╱────────╲
-  ╱ (Unit)   ╲    (futuro) pytest para utils puras
- ╱─────────────╲
+     ╱ E2╲          Cypress (9 specs) · frontend ↔ backend
+    ╱─────╲
+   ╱  API  ╲       pytest + TestClient (101 tests) · PostgreSQL real
+  ╱────────╲
+ ╱ (Unit)   ╲    (futuro) pytest para utils puras
+╱─────────────╲
 ```
 
 ### 2.3. Justificación API > E2E (basada en riesgo)
@@ -97,8 +97,8 @@ Es un **monorepo** con tres componentes:
 
 **Por qué API > E2E para riesgos extremos:**
 
-1. **Velocidad**: 118 tests API en ~100s vs ~3-5 min de E2E.
-2. **Determinismo**: SQLite in-memory + transacción con rollback = 0% flaky.
+1. **Velocidad**: 101 tests API en ~70s vs ~3-5 min de E2E.
+2. **Determinismo**: PostgreSQL real + `TRUNCATE ... RESTART IDENTITY CASCADE` por test = 0% flaky.
 3. **Race conditions**: `concurrent.futures.ThreadPoolExecutor` solo viable sobre HTTP local.
 4. **Acceso al estado interno**: API puede leer `bloqueos_temporales` y `vw_estado_asientos_viaje`.
 5. **Costo de mantenimiento**: selectores E2E (`aria-label`) sobreviven a refactors, pero cambios en el modelo rompen 1 test API, no 5.
@@ -330,7 +330,7 @@ PULL REQUEST → develop (o main)
    ▼
 FASE 1 — BARRERAS EN PARALELO
    │
-   ├──► backend-tests  (pytest 118 tests, ~100s)
+   ├──► backend-tests  (pytest 101 tests, ~70s)
    │         │
    │         ▼ (si pasa)
    ├──► e2e-tests      (Cypress + PostgreSQL + uvicorn + Vite, ~3-5 min)
@@ -468,7 +468,7 @@ jobs:
 ### 6.1. Logros del proyecto
 
 - **Plataforma funcional end-to-end** (backend FastAPI + frontend React).
-- **118 tests automatizados** verde en ~100s.
+- **101 tests automatizados** verde en ~70s.
 - **Pipeline CI/CD** definido con 3 jobs paralelos + artefactos.
 - **Auditoría de seguridad OWASP** completa: 3 hallazgos críticos mitigados.
 - **4 discrepancias del TEST_PLAN resueltas** (detalle ≥ 15, typo TEST_PLAN, idempotencia MP, job de holds).

@@ -25,8 +25,6 @@ router = APIRouter()
 TurnoLiteral = Literal["manana", "tarde", "noche"]
 TipoServicioLiteral = Literal["vip", "normal"]
 
-# FIX BUG-029: ventana máxima de búsqueda. 90 días hacia adelante
-# es la ventana operativa realista de las agencias de buses.
 MAX_SEARCH_DAYS = 90
 
 # PERFORMANCE: cache HTTP para /search. Los resultados no cambian
@@ -90,7 +88,6 @@ async def search_travels(
     - `tipo_servicio`: "vip" | "normal".
     - `turno`: "manana" | "tarde" | "noche".
     """
-# FIX BUG-028: rechazar fechas pasadas. El frontend ya valida
     today = date.today()
     if fecha_salida < today:
         raise HTTPException(
@@ -100,8 +97,6 @@ async def search_travels(
                 f"({today.isoformat()})."
             ),
         )
-    # FIX BUG-029: rechazar fechas muy lejanas para mantener
-    # consistencia con la ventana operativa real de las agencias.
     max_date = today + timedelta(days=MAX_SEARCH_DAYS)
     if fecha_salida > max_date:
         raise HTTPException(

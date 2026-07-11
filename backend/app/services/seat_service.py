@@ -91,7 +91,6 @@ class SeatService:
 
         existing = self.seats.get_active_hold(id_viaje, id_asiento)
         if existing is not None:
-# FIX bug "deselect zombie": para renovar correctamente
             same_session = (
                 token_sesion and existing.token_sesion == token_sesion
             )

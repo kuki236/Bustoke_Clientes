@@ -244,3 +244,177 @@ def test_refresh_con_token_malformado_devuelve_401(client):
     )
     assert_status_code(r, 401)
     assert "inv" in r.json()["detail"].lower()
+
+
+# ============================================================================
+# Migrados de la suite legacy `tests/test_auth_and_travels.py` (32 tests).
+# Casos únicos no cubiertos por la suite original de `test_auth_api.py`.
+# Migrados el 2026-07-11 durante la consolidación de suites.
+# ============================================================================
+
+def test_register_ignora_rol_enviado_y_siempre_es_cliente(client):
+    """
+    FIX BUG-009: el endpoint público B2C ignora cualquier `rol`
+    enviado por el cliente y SIEMPRE crea al usuario con
+    `rol='cliente'`. El blindaje contra escalación de privilegios
+    se hace a nivel de esquema (campo no expuesto en el payload).
+    """
+    r = client.post(
+        "/v1/auth/register",
+        json={
+            "nombres": "Admin",
+            "apellido_paterno": "Root",
+            "apellido_materno": "System",
+            "tipo_documento": "DNI",
+            "numero_documento": "00000001",
+            "telefono": "900000001",
+            "email": "admin.privilegios@bustoke-test.com",
+            "contrasena": "Secret123!",
+            "rol": "superadmin",
+        },
+    )
+    assert_status_code(r, 201)
+    assert r.json()["usuario"]["rol"] == "cliente"
+
+
+def test_register_crea_fila_pasajero_atomicamente(client, db_session):
+    """
+    El registro debe crear SIEMPRE tanto el `Usuario` como su
+    `Pasajero` asociado en la misma transacción. Si la fila
+    `pasajeros` no existe, el contrato del endpoint se rompe.
+    """
+    from app.models import Pasajero, Usuario
+
+    payload = {
+        "nombres": "Ana",
+        "apellido_paterno": "Rojas",
+        "apellido_materno": "Vela",
+        "tipo_documento": "DNI",
+        "numero_documento": "45678901",
+        "telefono": "945123456",
+        "email": "ana.atomic@bustoke-test.com",
+        "contrasena": "MiPassword123!",
+    }
+    r = client.post("/v1/auth/register", json=payload)
+    assert_status_code(r, 201)
+
+    usuario = (
+        db_session.query(Usuario)
+        .filter(Usuario.email == payload["email"])
+        .first()
+    )
+    assert usuario is not None
+    assert usuario.rol == "cliente"
+
+    pasajero = (
+        db_session.query(Pasajero)
+        .filter(Pasajero.id_usuario == usuario.id_usuario)
+        .first()
+    )
+    assert pasajero is not None, "El Pasajero vinculado al Usuario debe existir"
+    assert pasajero.nombres == payload["nombres"]
+    assert pasajero.apellido_paterno == payload["apellido_paterno"]
+    assert pasajero.apellido_materno == payload["apellido_materno"]
+    assert pasajero.numero_documento == payload["numero_documento"]
+    assert pasajero.fecha_nacimiento is None
+
+
+def test_register_tipo_documento_inexistente_devuelve_422(client):
+    """
+    Si el `tipo_documento` no está en el catálogo, el registro
+    debe rechazarse con 422 (y NO dejar un Usuario huérfano).
+    """
+    payload = {
+        "nombres": "Sin",
+        "apellido_paterno": "Doc",
+        "apellido_materno": "Raro",
+        "tipo_documento": "PASAPORTE_EXTRANJERO",
+        "numero_documento": "99999999",
+        "telefono": "999999999",
+        "email": "sin.doc@bustoke-test.com",
+        "contrasena": "MiPassword123!",
+    }
+    r = client.post("/v1/auth/register", json=payload)
+    assert_status_code(r, 422)
+
+
+def test_login_enriquece_usuario_con_nombres_y_apellido_paterno(client):
+    """
+    El `/login` debe enriquecer `usuario` con los datos del
+    pasajero vinculado (`nombres` + `apellido_paterno`) para
+    que el frontend pueda mostrar el saludo sin un round-trip
+    extra a `/me`.
+    """
+    register_payload = {
+        "nombres": "Lucas",
+        "apellido_paterno": "Andres",
+        "apellido_materno": "Perez",
+        "tipo_documento": "DNI",
+        "numero_documento": "66666666",
+        "telefono": "966666666",
+        "email": "lucas.andres@bustoke-test.com",
+        "contrasena": "MiPassword123!",
+    }
+    r = client.post("/v1/auth/register", json=register_payload)
+    assert_status_code(r, 201)
+    register_body = r.json()
+    assert register_body["usuario"]["nombres"] == "Lucas"
+    assert register_body["usuario"]["apellido_paterno"] == "Andres"
+
+    login = client.post(
+        "/v1/auth/login",
+        json={"email": "lucas.andres@bustoke-test.com", "password": "MiPassword123!"},
+    )
+    assert_status_code(login, 200)
+    usuario = login.json()["usuario"]
+    assert usuario["nombres"] == "Lucas"
+    assert usuario["apellido_paterno"] == "Andres"
+
+
+def test_me_enriquece_respuesta_con_nombres_y_apellido_paterno(
+    client, registrar_usuario
+):
+    """
+    El `/me` debe enriquecer el objeto devuelto con los datos
+    del pasajero vinculado, igual que `/login`.
+    """
+    usuario = registrar_usuario()
+    r = client.get(
+        "/v1/auth/me",
+        headers={"Authorization": f"Bearer {usuario['access_token']}"},
+    )
+    assert_status_code(r, 200)
+    body = r.json()
+    assert body["nombres"] == "Test"
+    assert body["apellido_paterno"] == "User"
+
+
+def test_login_usuario_sin_pasajero_devuelve_nombres_null(client, db_session):
+    """
+    Si el `Usuario` no tiene `Pasajero` vinculado (caso admin
+    de agencia o superadmin), los campos `nombres` y
+    `apellido_paterno` deben viajar como `None` (NO explotar).
+    """
+    from app.core.security import hash_password
+    from app.models import Usuario
+
+    admin = Usuario(
+        email="admin.legacy@bustoke-test.com",
+        password_hash=hash_password("AdminPass123!"),
+        telefono=None,
+        rol="admin_agencia",
+        id_agencia=None,
+        activo=True,
+    )
+    db_session.add(admin)
+    db_session.commit()
+
+    r = client.post(
+        "/v1/auth/login",
+        json={"email": "admin.legacy@bustoke-test.com", "password": "AdminPass123!"},
+    )
+    assert_status_code(r, 200)
+    usuario = r.json()["usuario"]
+    assert usuario["rol"] == "admin_agencia"
+    assert usuario["nombres"] is None
+    assert usuario["apellido_paterno"] is None
