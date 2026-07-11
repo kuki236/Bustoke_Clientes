@@ -139,12 +139,13 @@ Cypress.Commands.add('buscarPrimerViaje', (overrides = {}) => {
   hoy.setDate(hoy.getDate() + 1) // mañana
   const fecha = overrides.fecha_salida || hoy.toISOString().slice(0, 10)
 
-  // Si el caller no provee origen/destino, usamos IDs que sabemos
-  // que tienen rutas en la BD sembrada (Plaza Norte → Trujillo
-  // = id 1 → id 4). 1→2 (Plaza Norte → Javier Prado) no tiene
-  // ruta porque ambos son terminales de Lima.
+  // Si el caller no provee origen/destino, usamos IDs que el frontend
+  // resuelve para Lima→Trujillo (2→4, ver terminales.js CIUDAD_PRINCIPAL).
+  // `seed_e2e.py` (CI) crea justo la ruta 2→4. Para tests locales con
+  // otra BD (e.g. sembrada con `seed_viajes.py` que usa 1→4), el caller
+  // puede override via `cy.buscarPrimerViaje({ id_terminal_origen: X, id_terminal_destino: Y })`.
   const params = {
-    id_terminal_origen: overrides.id_terminal_origen || 1,
+    id_terminal_origen: overrides.id_terminal_origen || 2,
     id_terminal_destino: overrides.id_terminal_destino || 4,
     fecha_salida: fecha,
   }
