@@ -6,6 +6,11 @@
 // vez de URLs hardcoded. Esto evita acoplar los tests al entorno
 // de Render y permite alternar entre local y staging solo cambiando
 // la variable de entorno `CYPRESS_API_URL`.
+//
+// NOTA sobre Cypress 14: ya no usamos `cy.request(...).then()` ni
+// `return` de chainers en los `Cypress.Commands.add`. En su lugar
+// usamos Promises nativas envueltas en `cy.then` solo para
+// sincronización, evitando el error "mixing up async and sync code".
 // ============================================================================
 
 // ----------------------------------------------------------------------------
@@ -68,37 +73,42 @@ Cypress.Commands.add('registrarPasajero', (overrides = {}) => {
     contrasena: 'CypressPass123!',
     ...overrides,
   }
-  // Importante: NO usamos fixtures, el payload viaja en línea para
+  // NO usamos fixtures, el payload viaja en línea para
   // máxima legibilidad y para que el test sea self-contained.
-  return cy.request({
+  //
+  // Patrón Cypress 14: cy.request retorna un chainer. Usamos
+  // .then() para acceder a `resp`, pero NO retornamos el objeto
+  // de datos (que sería un objeto JS, no un chainer). En su
+  // lugar lo guardamos en `this` (closure) o lo emitimos como
+  // alias de Cypress.
+  cy.request({
     method: 'POST',
     url: `${apiBaseUrl()}/auth/register`,
     body: payload,
     failOnStatusCode: false,
   }).then((resp) => {
     expect(resp.status, `registro de ${email}`).to.eq(201)
+    // Guardamos el body en el alias `usuarioRegistrado` para que
+    // el caller pueda recuperarlo con `.as('usuarioRegistrado')`.
     const body = resp.body
     cy.log(`✅ Registrado ${email} (id_usuario=${body.usuario.id_usuario})`)
-    return {
+    cy.wrap({
       ...payload,
       id_usuario: body.usuario.id_usuario,
       access_token: body.access_token,
       refresh_token: body.refresh_token,
-    }
+    }).as('usuarioRegistrado')
   })
 })
 
 /**
  * Inicia sesión vía API y guarda los tokens en localStorage. Útil
- * para tests que no quieren ejercer el formulario de login (eso lo
- * cubre el spec 03-flujo-completo).
+ * para tests que no quieren ejercer el formulario de login.
  *
- * Por defecto AUTENTICA al usuario pero NO visita la página: el
- * caller decide cuándo navegar. Si quieres visitar después,
- * pasa `{ visit: '/' }`.
+ * Por defecto AUTENTICA al usuario pero NO visita la página.
  */
 Cypress.Commands.add('loginAPI', (email, password) => {
-  return cy.request({
+  cy.request({
     method: 'POST',
     url: `${apiBaseUrl()}/auth/login`,
     body: { email, password },
@@ -107,37 +117,38 @@ Cypress.Commands.add('loginAPI', (email, password) => {
     expect(resp.status, `login de ${email}`).to.eq(200)
     const { access_token, refresh_token, usuario } = resp.body
     // Simulamos lo que hace AuthContext al hacer login:
-    // guarda tokens en localStorage con las claves que usa axiosInstance.js.
+    // guarda tokens en localStorage con las claves que usa
+    // axiosInstance.js.
     cy.window().then((win) => {
       win.localStorage.setItem('bustoke_access_token', access_token)
       win.localStorage.setItem('bustoke_refresh_token', refresh_token)
       win.localStorage.setItem('bustoke_user', JSON.stringify(usuario))
     })
     cy.log(`🔐 Login OK ${email}`)
-    return { access_token, refresh_token, usuario }
+    cy.wrap({ access_token, refresh_token, usuario }).as('loginResult')
   })
 })
 
 /**
  * Busca un viaje vía API y devuelve el primer id_viaje encontrado.
- * Útil para preparar el escenario del spec de selección de asientos.
- *
- * NOTA: requiere que la BD tenga al menos un viaje sembrado
- * (lo que asume el entorno de staging de Render).
+ * Lo expone como alias `primerViaje` para que el caller lo use con
+ * `cy.get('@primerViaje')`.
  */
 Cypress.Commands.add('buscarPrimerViaje', (overrides = {}) => {
   const hoy = new Date()
   hoy.setDate(hoy.getDate() + 1) // mañana
   const fecha = overrides.fecha_salida || hoy.toISOString().slice(0, 10)
 
-  // Si el caller no provee origen/destino, usamos IDs sentinela
-  // (1 y 2 son los típicos de la BD sembrada en tests del backend).
+  // Si el caller no provee origen/destino, usamos IDs que sabemos
+  // que tienen rutas en la BD sembrada (Plaza Norte → Trujillo
+  // = id 1 → id 4). 1→2 (Plaza Norte → Javier Prado) no tiene
+  // ruta porque ambos son terminales de Lima.
   const params = {
     id_terminal_origen: overrides.id_terminal_origen || 1,
-    id_terminal_destino: overrides.id_terminal_destino || 2,
+    id_terminal_destino: overrides.id_terminal_destino || 4,
     fecha_salida: fecha,
   }
-  return cy.request({
+  cy.request({
     method: 'GET',
     url: `${apiBaseUrl()}/travels/search`,
     qs: params,
@@ -156,18 +167,16 @@ Cypress.Commands.add('buscarPrimerViaje', (overrides = {}) => {
     }
     const viaje = resultados[0]
     cy.log(`🚌 Viaje encontrado: id=${viaje.id_viaje} (${viaje.terminal_origen}→${viaje.terminal_destino})`)
-    return viaje
+    cy.wrap(viaje).as('primerViaje')
   })
 })
 
 /**
  * Verifica la salud del backend antes de empezar. Útil como
- * precondición al inicio de un spec crítico. Si falla, el spec
- * se aborta con un mensaje claro (mejor que fallar a mitad con
- * un timeout confuso).
+ * precondición al inicio de un spec crítico.
  */
 Cypress.Commands.add('verificarAPI', () => {
-  return cy.request({
+  cy.request({
     method: 'GET',
     url: `${apiBaseUrl().replace(/\/v1$/, '')}/health`,
     timeout: 60000, // cold start de Render puede tardar 30s+

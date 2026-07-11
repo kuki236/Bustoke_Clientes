@@ -248,6 +248,17 @@ jobs:
           JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
           SEAT_HOLD_TTL_SECONDS=600
           CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+          # Sin rate limit ni job de cleanup: Cypress hace muchos
+          # registros y holds seguidos en una corrida.
+          RATE_LIMIT_ENABLED=false
+          HOLD_CLEANUP_DISABLED=true
+          EOF
+
+      - name: Generar .env.local de CI (frontend apunta a backend local)
+        working-directory: frontend-client
+        run: |
+          cat > .env.local <<EOF
+          VITE_API_BASE_URL=http://127.0.0.1:8000/v1
           EOF
 
       - name: Esperar a que PostgreSQL esté listo

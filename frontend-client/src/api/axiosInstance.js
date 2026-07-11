@@ -59,8 +59,15 @@ export function clearAllTokens() {
 
 export const TOKEN_STORAGE_KEY = ACCESS_TOKEN_KEY
 
+// `import.meta.env.VITE_API_BASE_URL` se puede definir en `.env`
+// (raíz de frontend-client) o por línea de comandos al arrancar
+// Vite: `vite --host 127.0.0.1` + VITE_API_BASE_URL=http://localhost:8000/v1.
+// Si no está definida, usa el backend público de Render.
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "https://bustoke-backend.onrender.com/v1"
+
 const axiosInstance = axios.create({
-  baseURL : "https://bustoke-backend.onrender.com/v1",
+  baseURL : API_BASE_URL,
   timeout: 1500000,
   headers: {
     'Content-Type': 'application/json',

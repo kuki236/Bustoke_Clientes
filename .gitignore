@@ -79,6 +79,23 @@ web_modules/
 .env.production.local
 .env.local
 
+# Process / server output logs (uvicorn, vite, etc.)
+*.err
+*.out
+uvicorn.*
+vite.log
+vite.err
+backend.log
+backend.err
+
+# Cypress artifacts
+cypress/screenshots
+cypress/videos
+cypress/downloads
+**/cypress/screenshots
+**/cypress/videos
+**/cypress/downloads
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
