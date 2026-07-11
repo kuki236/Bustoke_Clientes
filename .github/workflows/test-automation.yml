@@ -3,16 +3,18 @@
 #
 # Ejecuta en cada push y pull_request a las ramas `main` y `develop`:
 #
-#   Job 1: backend-tests   → pytest (sin servicios externos, SQLite in-memory)
+#   Job 1: backend-tests   → pytest contra PostgreSQL `bustoke_test`
+#                            (TRUNCATE por test, esquema desde bustoke_bd.sql)
 #   Job 2: e2e-tests       → Cypress con backend + frontend + PostgreSQL
 #   Job 3: lint            → ESLint del frontend (rápida barrera de calidad)
 #
 # Decisiones clave:
 #   - PostgreSQL se levanta como `service` (no como container separado)
-#     para que uvicorn pueda conectarse vía localhost:5432.
-#   - El backend usa SQLite in-memory para pytest (más rápido, sin
-#     dependencias externas); pero usa PostgreSQL real para servir
-#     a Cypress (porque los specs esperan un viaje sembrado).
+#     para que tanto pytest como uvicorn puedan conectarse vía localhost:5432.
+#   - El backend usa PostgreSQL real (BD `bustoke_test`) tanto para
+#     pytest como para servir a Cypress. La suite pytest hace
+#     `TRUNCATE ... RESTART IDENTITY CASCADE` por test para
+#     garantizar idempotencia.
 #   - Los jobs e2e y backend corren en paralelo: ahorra ~50% del
 #     tiempo total del pipeline.
 #   - Concurrency group cancela ejecuciones obsoletas en PRs.
@@ -52,12 +54,38 @@ env:
 
 jobs:
   # ==========================================================================
-  # JOB 1: Backend API tests (pytest + TestClient + SQLite in-memory)
+  # JOB 1: Backend API tests (pytest + TestClient + PostgreSQL real)
   # ==========================================================================
   backend-tests:
-    name: Backend API Tests (pytest)
+    name: Backend API Tests (pytest + PostgreSQL)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
+    # Servicio de PostgreSQL 16 con BD `bustoke_test` pre-creada.
+    # La suite hace TRUNCATE por test, así que solo necesitamos el
+    # esquema cargado, no datos.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-test-password-12345
+          POSTGRES_DB: bustoke_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DB_HOST: localhost
+      DB_PORT: '5432'
+      DB_NAME: bustoke_test
+      DB_USER: postgres
+      DB_PASSWORD: ci-test-password-12345
+      TEST_DATABASE_URL: postgresql+psycopg2://postgres:ci-test-password-12345@localhost:5432/bustoke_test
 
     steps:
       - name: Checkout código
@@ -70,6 +98,9 @@ jobs:
           cache: 'pip'
           cache-dependency-path: backend/requirements.txt
 
+      - name: Instalar psql client (para aplicar el dump)
+        run: sudo apt-get install -y postgresql-client
+
       - name: Instalar dependencias Python
         working-directory: backend
         run: |
@@ -78,6 +109,26 @@ jobs:
           source venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      - name: Esperar a que PostgreSQL esté listo
+        run: |
+          for i in $(seq 1 30); do
+            if pg_isready -h localhost -p 5432 -U postgres; then
+              echo "PostgreSQL listo tras ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "ERROR: PostgreSQL no responde tras 30s"
+          exit 1
+
+      - name: Aplicar esquema (bustoke_bd.sql)
+        working-directory: backend
+        run: |
+          PGPASSWORD=ci-test-password-12345 psql \
+            -h localhost -p 5432 -U postgres -d bustoke_test \
+            -v ON_ERROR_STOP=1 \
+            -f scripts/bustoke_bd.sql
 
       - name: Crear directorio de reportes
         working-directory: backend
@@ -124,7 +175,7 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_PASSWORD: ci-test-password-12345
           POSTGRES_DB: bustoke_test
         ports:
           - 5432:5432
@@ -140,7 +191,7 @@ jobs:
       DB_PORT: '5432'
       DB_NAME: bustoke_test
       DB_USER: postgres
-      DB_PASSWORD: postgres
+      DB_PASSWORD: ci-test-password-12345
 
     steps:
       - name: Checkout código
@@ -191,12 +242,23 @@ jobs:
           DB_PORT=5432
           DB_NAME=bustoke_test
           DB_USER=postgres
-          DB_PASSWORD=postgres
+          DB_PASSWORD=ci-test-password-12345
           SECRET_KEY=ci-test-secret-key-not-for-prod-do-not-use-elsewhere
           JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
           JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
           SEAT_HOLD_TTL_SECONDS=600
           CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+          # Sin rate limit ni job de cleanup: Cypress hace muchos
+          # registros y holds seguidos en una corrida.
+          RATE_LIMIT_ENABLED=false
+          HOLD_CLEANUP_DISABLED=true
+          EOF
+
+      - name: Generar .env.local de CI (frontend apunta a backend local)
+        working-directory: frontend-client
+        run: |
+          cat > .env.local <<EOF
+          VITE_API_BASE_URL=http://127.0.0.1:8000/v1
           EOF
 
       - name: Esperar a que PostgreSQL esté listo
@@ -214,7 +276,7 @@ jobs:
       - name: Aplicar esquema (bustoke_bd.sql)
         working-directory: backend
         run: |
-          PGPASSWORD=postgres psql \
+          PGPASSWORD=ci-test-password-12345 psql \
             -h localhost -p 5432 -U postgres -d bustoke_test \
             -v ON_ERROR_STOP=1 \
             -f scripts/bustoke_bd.sql

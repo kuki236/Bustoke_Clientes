@@ -8,10 +8,9 @@
 
 import './commands'
 
-// FIX React 19 + Vite: en dev mode, React lanza advertencias de
-// hidratación que NO son errores reales. Las ignoramos para evitar
-// que fallen specs que solo verifican renderizado. En CI se podrían
-// dejar pasar y tratarlas como bugs.
+// En dev mode, React lanza advertencias de hidratación que NO son
+// errores reales. Las ignoramos para evitar que fallen specs que
+// solo verifican renderizado.
 Cypress.on('uncaught:exception', (err) => {
   if (
     /hydrat/i.test(err.message) ||
@@ -23,7 +22,7 @@ Cypress.on('uncaught:exception', (err) => {
 })
 
 // Limpia localStorage / sessionStorage antes de cada test para
-// evitar contaminación entre specs (FIX idempotencia de UI).
+// evitar contaminación entre specs.
 beforeEach(() => {
   cy.clearLocalStorage()
   cy.clearCookies()

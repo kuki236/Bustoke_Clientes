@@ -170,7 +170,6 @@ class SeatHoldRequest(BaseModel):
         "genera uno nuevo. Si el bloqueo vigente pertenece al mismo "
         "token, se renueva la expiración.",
     )
-# FIX bug "deselect deja hold zombie cuando user está logueado":
     id_usuario: Optional[int] = Field(
         default=None,
         ge=1,

@@ -177,15 +177,8 @@ app = FastAPI(
 # MIDDLEWARES
 # ============================================================================
 
-# FIX A05: headers de seguridad HTTP (CSP, HSTS, X-Frame-Options, ...)
-# Se aplica PRIMERO para que TODAS las respuestas (incluidos errores
-# 4xx/5xx y respuestas de CORS) lleven los headers.
 app.add_middleware(SecurityHeadersMiddleware)
 
-# FIX A07: rate limiting con slowapi.
-# El middleware aplica los límites globales (default 60/min).
-# Los límites específicos por endpoint se aplican con @limiter.limit
-# en cada router.
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
@@ -208,10 +201,6 @@ app.add_middleware(
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_: Request, exc: RequestValidationError):
     """Devuelve un payload legible cuando Pydantic rechaza un body."""
-    # FIX A02/A05: convertir `errors` a formato JSON-seguro antes de
-    # serializar. El ctx de Pydantic puede contener objetos no
-    # serializables (ValueError instances) que rompen json.dumps.
-    # Usar `mode='json'` en model_dump fuerza la serialización segura.
     from fastapi.encoders import jsonable_encoder
     safe_errors = jsonable_encoder(exc.errors())
     # FIX: incluimos el detalle de los primeros errores en `detail`

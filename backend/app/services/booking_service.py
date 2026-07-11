@@ -44,16 +44,11 @@ class BookingService:
            omite sin fallar la compra.
         """
         with self.db.begin():
-# FIX BUG-111: rechazar checkout si el comprador no aceptó
             if not getattr(payload, "acepto_terminos_politicas", False):
                 raise ValueError(
                     "Debes aceptar los términos y políticas para continuar."
                 )
 
-# FIX DISCREPANCIA TEST_PLAN (TC-RB-002): idempotencia de pagos.
-# Si el frontend reintenta con el mismo `mp_payment_id`, devolvemos
-# el pago original con 409 (en lugar de generar uno nuevo que resultaría
-# en un cobro duplicado al usuario).
             mp_payment_id = getattr(payload, "mp_payment_id", None)
             if payload.metodo_pago == "tarjeta" and mp_payment_id:
                 referencia_transaccion_check = f"MP-{int(mp_payment_id)}"
@@ -160,8 +155,6 @@ class BookingService:
                         "codigo_qr": codigo_qr,
                         "precio_final": precio,
                         "estado": "activo",
-                        # FIX BUG-111: persistir el valor real del
-                        # checkbox enviado por el frontend.
                         "acepto_terminos_politicas": bool(
                             getattr(payload, "acepto_terminos_politicas", False)
                         ),

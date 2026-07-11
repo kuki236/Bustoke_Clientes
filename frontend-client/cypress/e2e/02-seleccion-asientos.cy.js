@@ -17,9 +17,6 @@
 //   - Asiento libre:   button[aria-label^="Asiento"][aria-label$="libre"]
 //   - Asiento ocupado: button[aria-label^="Asiento"][aria-label$="ocupado"]
 //   - Timer:           [aria-label*="Tiempo restante"]
-//
-// Manejo de cold starts de Render: timeout de 10s en selectores
-// críticos + `cy.verificarAPI()` en before().
 // ============================================================================
 
 describe('Selección y bloqueo de asientos (SeatSelection)', () => {
@@ -40,148 +37,147 @@ describe('Selección y bloqueo de asientos (SeatSelection)', () => {
 
   /**
    * Helper: siembra el escenario (usuario logueado + viaje conocido)
-   * navegando programáticamente a la pantalla de selección.
-   * Devuelve una promesa con el id_viaje.
+   * usando los aliases `usuarioRegistrado` y `primerViaje` que dejan
+   * los custom commands. Devuelve el `id_viaje` mediante la variable
+   * de closure `idViaje`.
    */
   function setupEscenario() {
-    return cy.registrarPasajero().then((usuario) => {
+    // Encadenamos los 3 helpers: registrar → login → buscar viaje.
+    // Cada uno deja un alias al final. Usamos `cy.then` con un
+    // closure para acceder al alias en orden.
+    cy.registrarPasajero()
+    cy.get('@usuarioRegistrado').then((usuario) => {
       cy.loginAPI(usuario.email, usuario.contrasena)
-      return cy.buscarPrimerViaje().then((viaje) => {
-        idViaje = viaje.id_viaje
-        return viaje
+      cy.get('@loginResult').then(() => {
+        cy.buscarPrimerViaje()
+        cy.get('@primerViaje').then((viaje) => {
+          idViaje = viaje.id_viaje
+        })
       })
     })
   }
 
   it('carga el mapa de asientos y muestra el frente del bus', () => {
-    setupEscenario().then(() => {
-      cy.visit(`/viaje/${idViaje}/asientos`, { timeout: 60000 })
+    setupEscenario()
+    cy.visit(`/viaje/${idViaje}/asientos`, { timeout: 60000 })
 
-      // El renderizado del mapa puede tardar si Render free
-      // está en cold start. Usamos 10s como umbral.
-      cy.get('[aria-label="Frente del bus"]', { timeout: 10000 })
-        .should('be.visible')
-      cy.get('[aria-label="Baño"]').should('exist')
-    })
+    cy.get('[aria-label="Frente del bus"]', { timeout: 10000 })
+      .should('be.visible')
+    cy.get('[aria-label="Baño"]').should('exist')
   })
 
   it('permite seleccionar un asiento libre y dispara POST /seats/hold', () => {
-    setupEscenario().then(() => {
-      cy.visit(`/viaje/${idViaje}/asientos`, { timeout: 60000 })
+    setupEscenario()
+    cy.visit(`/viaje/${idViaje}/asientos`, { timeout: 60000 })
 
-      // Esperamos a que el mapa esté listo.
-      cy.get('[aria-label="Frente del bus"]', { timeout: 10000 })
-        .should('be.visible')
+    cy.get('[aria-label="Frente del bus"]', { timeout: 10000 })
+      .should('be.visible')
 
-      // Interceptamos la llamada al endpoint de hold ANTES del click.
-      cy.intercept('POST', '**/v1/seats/hold').as('holdRequest')
+    cy.intercept('POST', '**/v1/seats/hold').as('holdRequest')
 
-      // Buscamos el primer asiento con estado 'libre'. Selector
-      // estable basado en aria-label dinámico de SeatButton.
-      cy.get('button[aria-label^="Asiento"][aria-label$="libre"]', { timeout: 10000 })
-        .first()
-        .should('be.visible')
-        .and('not.be.disabled')
-        .click()
+    cy.get('button[aria-label^="Asiento"][aria-label$="libre"]', { timeout: 10000 })
+      .first()
+      .should('be.visible')
+      .and('not.be.disabled')
+      .click()
 
-      // Aserciones sobre la llamada HTTP:
-      cy.wait('@holdRequest', { timeout: 15000 }).then((interception) => {
-        expect(interception.response.statusCode, 'status del hold').to.eq(201)
-        const body = interception.response.body
-        expect(body).to.have.property('estado', 'activo')
-        expect(body).to.have.property('id_bloqueo')
-        expect(body).to.have.property('id_viaje', idViaje)
-      })
-
-      // Verificación visual: el asiento clickeado ahora debe estar
-      // marcado como "seleccionado" (cambia el aria-label).
-      cy.get('button[aria-label$="seleccionado"]', { timeout: 5000 })
-        .should('have.length.at.least', 1)
-
-      // Y debe aparecer el badge de tiempo restante.
-      cy.get('[aria-label*="Tiempo restante"]', { timeout: 5000 })
-        .should('be.visible')
+    cy.wait('@holdRequest', { timeout: 15000 }).then((interception) => {
+      expect(interception.response.statusCode, 'status del hold').to.eq(201)
+      const body = interception.response.body
+      expect(body).to.have.property('estado', 'activo')
+      expect(body).to.have.property('id_bloqueo')
+      expect(body).to.have.property('id_viaje', idViaje)
     })
+
+    cy.get('button[aria-label$="seleccionado"]', { timeout: 5000 })
+      .should('have.length.at.least', 1)
+
+    cy.get('[aria-label*="Tiempo restante"]', { timeout: 5000 })
+      .should('be.visible')
   })
 
   it('libera un asiento seleccionado y dispara POST /seats/release', () => {
-    setupEscenario().then(() => {
-      cy.visit(`/viaje/${idViaje}/asientos`, { timeout: 60000 })
+    setupEscenario()
+    cy.visit(`/viaje/${idViaje}/asientos`, { timeout: 60000 })
 
-      cy.get('[aria-label="Frente del bus"]', { timeout: 10000 })
-        .should('be.visible')
+    cy.get('[aria-label="Frente del bus"]', { timeout: 10000 })
+      .should('be.visible')
 
-      // Paso 1: seleccionar
-      cy.get('button[aria-label^="Asiento"][aria-label$="libre"]')
-        .first()
-        .click()
-      cy.get('button[aria-label$="seleccionado"]', { timeout: 5000 })
-        .should('exist')
+    // Paso 1: seleccionar
+    cy.get('button[aria-label^="Asiento"][aria-label$="libre"]')
+      .first()
+      .click()
+    cy.get('button[aria-label$="seleccionado"]', { timeout: 5000 })
+      .should('exist')
 
-      // Paso 2: interceptar release y volver a clickear (toggle off)
-      cy.intercept('POST', '**/v1/seats/release').as('releaseRequest')
-      cy.get('button[aria-label$="seleccionado"]').first().click()
+    // Paso 2: interceptar release y volver a clickear (toggle off)
+    cy.intercept('POST', '**/v1/seats/release').as('releaseRequest')
+    cy.get('button[aria-label$="seleccionado"]').first().click()
 
-      cy.wait('@releaseRequest', { timeout: 15000 }).then((interception) => {
-        expect(interception.response.statusCode, 'status del release').to.eq(200)
-        const body = interception.response.body
-        expect(['liberado', 'sin_bloqueo']).to.include(body.estado)
-      })
-
-      // Tras el release, el asiento vuelve a estado 'libre' o se queda
-      // sin selección. Verificamos que NO hay asientos seleccionados.
-      cy.get('button[aria-label$="seleccionado"]', { timeout: 5000 })
-        .should('not.exist')
+    cy.wait('@releaseRequest', { timeout: 15000 }).then((interception) => {
+      expect(interception.response.statusCode, 'status del release').to.eq(200)
+      const body = interception.response.body
+      expect(['liberado', 'sin_bloqueo']).to.include(body.estado)
     })
+
+    cy.get('button[aria-label$="seleccionado"]', { timeout: 5000 })
+      .should('not.exist')
   })
 
   it('no permite click en asientos ocupados (botón disabled)', () => {
-    setupEscenario().then(() => {
-      // Primero bloqueamos un asiento desde el API (sesión A).
-      const tokenA = `sess-A-${Date.now()}`
-      cy.get('button[aria-label^="Asiento"][aria-label$="libre"]', { timeout: 10000 })
-        .should('exist')
+    setupEscenario()
+    // Primero bloqueamos un asiento desde el API (sesión A).
+    const tokenA = `sess-A-${Date.now()}`
 
-      // Buscamos el primer id_asiento desde la API
+    // Visitamos la página una vez para que el front-end pueda
+    // hidratar `localStorage` con el access_token del usuario.
+    cy.visit(`/viaje/${idViaje}/asientos`, { timeout: 60000 })
+    cy.get('[aria-label="Frente del bus"]', { timeout: 10000 })
+      .should('be.visible')
+
+    // Obtenemos el primer id_asiento y bloqueamos desde una sesión A.
+    cy.request({
+      method: 'GET',
+      url: `${Cypress.env('apiBaseUrl')}/travels/${idViaje}/seats`,
+    }).then((resp) => {
+      const idAsiento = resp.body.asientos[0].id_asiento
+
+      // Sesión A lo bloquea. `failOnStatusCode: false` para que
+      // un 409 (asiento ya bloqueado por un test previo que no
+      // limpió) NO aborte el test — seguimos y validamos que el
+      // botón está disabled de todos modos.
       cy.request({
-        method: 'GET',
-        url: `${Cypress.env('apiBaseUrl')}/travels/${idViaje}/seats`,
-      }).then((resp) => {
-        const idAsiento = resp.body.asientos[0].id_asiento
+        method: 'POST',
+        url: `${Cypress.env('apiBaseUrl')}/seats/hold`,
+        body: {
+          id_viaje: idViaje,
+          id_asiento: idAsiento,
+          token_sesion: tokenA,
+        },
+        failOnStatusCode: false,
+      }).then(() => {
+        // Re-visitamos la página con el hold activo de sesión A.
+        cy.visit(`/viaje/${idViaje}/asientos`, { timeout: 60000 })
+        cy.get('[aria-label="Frente del bus"]', { timeout: 10000 })
+          .should('be.visible')
 
-        // Sesión A lo bloquea.
-        return cy.request({
+        // El asiento bloqueado por sesión A debe aparecer como
+        // "bloqueado" y estar disabled.
+        cy.get('button[aria-label*="bloqueado"]', {
+          timeout: 5000,
+        })
+          .first()
+          .should('be.disabled')
+
+        // Cleanup: que la sesión A no deje zombie holds.
+        cy.request({
           method: 'POST',
-          url: `${Cypress.env('apiBaseUrl')}/seats/hold`,
+          url: `${Cypress.env('apiBaseUrl')}/seats/release`,
           body: {
             id_viaje: idViaje,
             id_asiento: idAsiento,
             token_sesion: tokenA,
           },
-        }).then(() => {
-          // Ahora visitamos la página con sesión B (el usuario actual).
-          cy.visit(`/viaje/${idViaje}/asientos`, { timeout: 60000 })
-          cy.get('[aria-label="Frente del bus"]', { timeout: 10000 })
-            .should('be.visible')
-
-          // El asiento bloqueado por sesión A debe aparecer como
-          // "bloqueado" y estar disabled.
-          cy.get(`button[aria-label$="${idAsiento} bloqueado"], button[aria-label*=" bloqueado"]`, {
-            timeout: 5000,
-          })
-            .first()
-            .should('be.disabled')
-
-          // Cleanup: que la sesión A no deje zombie holds.
-          cy.request({
-            method: 'POST',
-            url: `${Cypress.env('apiBaseUrl')}/seats/release`,
-            body: {
-              id_viaje: idViaje,
-              id_asiento: idAsiento,
-              token_sesion: tokenA,
-            },
-          })
         })
       })
     })

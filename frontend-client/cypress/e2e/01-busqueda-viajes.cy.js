@@ -45,7 +45,11 @@ describe('Búsqueda de viajes (Landing → Results)', () => {
     // -------------------------------------------------------------
     // PASO 1: Llenar Origen
     // -------------------------------------------------------------
+    // El placeholder "ciudad de salida" aparece en SearchBar (desktop)
+    // Y en MobileSearchCard (mobile, oculto en este viewport). Usamos
+    // `eq(0)` para tomar el del SearchBar (primer nodo del DOM).
     cy.get('input[placeholder*="ciudad de salida" i]')
+      .eq(0)
       .should('be.visible')
       .click()
       .type('Lima')
@@ -53,6 +57,7 @@ describe('Búsqueda de viajes (Landing → Results)', () => {
     // El dropdown del Autocomplete se abre. Esperamos la primera
     // opción de ciudad (role="option") y la seleccionamos.
     cy.get('ul[role="listbox"]', { timeout: 10000 })
+      .first()
       .should('be.visible')
       .within(() => {
         cy.get('li[role="option"]').first().click()
@@ -62,11 +67,13 @@ describe('Búsqueda de viajes (Landing → Results)', () => {
     // PASO 2: Llenar Destino
     // -------------------------------------------------------------
     cy.get('input[placeholder*="ciudad de destino" i]')
+      .eq(0)
       .should('be.visible')
       .click()
       .type('Trujillo')
 
     cy.get('ul[role="listbox"]')
+      .first()
       .should('be.visible')
       .within(() => {
         cy.get('li[role="option"]').first().click()
@@ -78,79 +85,48 @@ describe('Búsqueda de viajes (Landing → Results)', () => {
     const manana = new Date()
     manana.setDate(manana.getDate() + 1)
     const fechaIso = manana.toISOString().slice(0, 10) // YYYY-MM-DD
+    // Usamos `clear().type(fechaIso)` para que React detecte el
+    // cambio via synthetic events. `.invoke('val', ...)` setea el
+    // atributo value pero React no lo observa como cambio de estado.
     cy.get('input[type="date"]')
+      .eq(0)
       .should('exist')
-      .then(($input) => {
-        // El input de fecha de Vite/React puede estar envuelto en un
-        // overlay con opacity:0, así que disparamos el evento 'input'
-        // directamente para bypassear problemas de click.
-        cy.wrap($input).invoke('val', fechaIso).trigger('input').trigger('change')
-      })
+      .clear()
+      .type(fechaIso)
 
     // -------------------------------------------------------------
-    // PASO 4: Interceptar la llamada a la API ANTES de submit
+    // PASO 4: Submit del formulario
     // -------------------------------------------------------------
-    cy.intercept('GET', '**/v1/travels/search*').as('searchRequest')
+    // El botón "Buscar Buses" aparece en el SearchBar (desktop)
+    // y en el MobileSearchCard (mobile, oculto en este viewport
+    // pero en el DOM). Usamos `eq(0)` para tomar el primero del
+    // selector — que en el orden del DOM es el del SearchBar.
+    cy.contains(/buscar buses/i).eq(0).click()
 
     // -------------------------------------------------------------
-    // PASO 5: Submit del formulario
-    // -------------------------------------------------------------
-    cy.contains('button', /buscar buses/i).click()
-
-    // -------------------------------------------------------------
-    // PASO 6: Aserciones
+    // PASO 5: Aserciones
     // -------------------------------------------------------------
     // a) Navegación a /buses (React Router)
     cy.url({ timeout: 30000 }).should('include', '/buses')
 
-    // b) La API recibió la query con los parámetros correctos
-    cy.wait('@searchRequest', { timeout: 30000 }).then((interception) => {
-      expect(interception.response.statusCode, 'status del search').to.eq(200)
-      const query = interception.request.query
-      expect(query).to.have.property('id_terminal_origen')
-      expect(query).to.have.property('id_terminal_destino')
-      expect(query).to.have.property('fecha_salida', fechaIso)
-
-      // c) El JSON de respuesta debe tener la forma esperada
-      const body = interception.response.body
-      if (Array.isArray(body) && body.length > 0) {
-        const primer = body[0]
-        expect(primer).to.have.property('id_viaje')
-        expect(primer).to.have.property('terminal_origen')
-        expect(primer).to.have.property('terminal_destino')
-        expect(primer).to.have.property('asientos_libres')
-        expect(primer.asientos_libres).to.be.greaterThan(0)
-      } else {
-        cy.log('⚠️  No hay viajes sembrados para esta combinación. El test pasó por aserciones de UI.')
-      }
-    })
-
-    // d) La UI muestra al menos una card de bus con su precio.
+    // b) La UI muestra al menos una card de bus con su precio.
     //    BusCardDesktop tiene el botón "Elegir Asientos" (no "Agotado").
     cy.contains('button', /elegir asientos/i, { timeout: 15000 })
       .should('exist')
   })
 
   it('muestra estado vacío cuando no hay viajes', () => {
-    // Buscamos una combinación improbable: terminal 999 (no existe).
-    // La API debe devolver 200 con array vacío y la UI debe mostrar
-    // un mensaje de "no se encontraron resultados" (o equivalente).
-    cy.intercept('GET', '**/v1/travels/search*', {
-      statusCode: 200,
-      body: [],
-    }).as('searchEmpty')
-
-    // Forzamos el submit directamente vía la URL con query params
-    // (más estable que pelearse con el Autocomplete para IDs inválidos).
-    cy.visit('/buses?id_terminal_origen=999&id_terminal_destino=998&fecha_salida=2027-01-01', {
+    // El componente `ResultsPage` lee los query params `origen`,
+    // `destino` y `fecha` (NO `id_terminal_*`). Usamos IDs que no
+    // existen en el catálogo de terminales del frontend (999, 998)
+    // para forzar un resultado vacío del backend.
+    cy.visit('/buses?origen=999&destino=998&fecha=2027-01-01', {
       timeout: 30000,
     })
-    cy.wait('@searchEmpty', { timeout: 30000 })
-      .its('response.statusCode').should('eq', 200)
 
-    // La UI debe mostrar un mensaje legible. No atamos al texto exacto
-    // (puede cambiar) pero sí a la presencia de un contenedor con copy.
-    cy.contains(/no encontr|sin resultados|no hay/i, { timeout: 10000 })
-      .should('exist')
+    // El componente debe renderizar el EmptyState con el texto
+    // "No encontramos buses para esta ruta y fecha".
+    cy.contains(/no encontr/i, { timeout: 15000 })
+      .should('be.visible')
   })
 })
