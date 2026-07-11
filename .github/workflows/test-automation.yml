@@ -256,10 +256,7 @@ jobs:
 
       - name: Generar .env.local de CI (frontend apunta a backend local)
         working-directory: frontend-client
-        run: |
-          cat > .env.local <<EOF
-          VITE_API_BASE_URL=http://127.0.0.1:8000/v1
-          EOF
+        run: printf 'VITE_API_BASE_URL=http://127.0.0.1:8000/v1\n' > .env.local
 
       - name: Esperar a que PostgreSQL esté listo
         run: |
