@@ -248,7 +248,7 @@ npm run cy:run       # headless
 ```
 
 Detalles completos de la suite, decisiones de diseño y cobertura por
-endpoint en [`TESTING.md`](TESTING.md).
+endpoint en [`docs/TESTING.md`](docs/TESTING.md).
 
 ## Convenciones del proyecto
 
