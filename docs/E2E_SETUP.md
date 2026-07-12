@@ -87,7 +87,7 @@ psql -U postgres -h localhost -d bustoke_test -f C:\Users\sebas\Desktop\sebas\re
 
 ## Paso 4: Sembrar el dataset E2E
 
-### Opción A — pgAdmin 4 (recomendado si psycopg2 falla en tu Windows)
+### ⚠️ Opción A — pgAdmin 4 (recomendado si psycopg2 falla en tu Windows)
 
 1. En pgAdmin 4, click en la BD `bustoke_test`.
 2. Menú **Tools** → **Query Tool**.
@@ -95,7 +95,9 @@ psql -U postgres -h localhost -d bustoke_test -f C:\Users\sebas\Desktop\sebas\re
 4. Click en **Execute** (▶️) o F5.
 5. Espera ~3s. Verás mensajes `TRUNCATE`, `INSERT 0 3`, etc., y 11 `SELECT setval` al final.
 
-### Opción B — Script Python (si psycopg2 funciona en tu máquina)
+> **Nota**: `seed_e2e.sql` es una alternativa SQL pura. Si tienes `psycopg2` funcional, prefiere la **Opción B** (Python) que es la fuente de verdad y siempre está sincronizada con los IDs que espera el frontend.
+
+### Opción B — Script Python (recomendada)
 
 Vuelve a la terminal donde activaste el venv (Paso 1):
 

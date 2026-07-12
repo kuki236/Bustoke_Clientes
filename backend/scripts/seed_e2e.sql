@@ -54,21 +54,21 @@ INSERT INTO provincias (id_provincia, id_departamento, nombre) VALUES
     (2, 2, 'Trujillo');
 
 INSERT INTO distritos (id_distrito, id_provincia, nombre) VALUES
-    (1, 1, 'La Victoria'),
+    (1, 1, 'San Borja'),
     (2, 2, 'Trujillo');
 
 -- Agencia
 INSERT INTO agencias (id_agencia, ruc, razon_social, estado) VALUES
     (1, '20100234561', 'CRUZ DEL SUR S.A.C.', 'activa');
 
--- Terminales (IDs 1 y 2 son los que usan los specs de Cypress)
+-- Terminales (el frontend resuelve "Lima" → id 2, "Trujillo" → id 4)
 INSERT INTO terminales (id_terminal, id_distrito, nombre, direccion) VALUES
-    (1, 1, 'Terminal Lima Centro',  'Av. Javier Prado 1109'),
-    (2, 2, 'Terminal Trujillo',     'Panamericana Norte Km 558');
+    (2, 1, 'Terminal Javier Prado - Cruz del Sur', 'Av. Javier Prado Este 1109, San Borja - Lima'),
+    (4, 2, 'Terminal Terrestre de Trujillo',       'Panamericana Norte Km 558, Trujillo');
 
--- Ruta Lima → Trujillo
+-- Ruta Lima (Javier Prado, id 2) → Trujillo (id 4)
 INSERT INTO rutas (id_ruta, id_agencia, id_terminal_origen, id_terminal_destino, tarifa_base) VALUES
-    (1, 1, 1, 2, 70.00);
+    (1, 1, 2, 4, 70.00);
 
 -- Tarifas por tipo de servicio
 INSERT INTO tarifas_ruta (id_tarifa, id_ruta, tipo_servicio, precio) VALUES
@@ -108,7 +108,7 @@ SELECT setval(pg_get_serial_sequence('departamentos',           'id_departamento
 SELECT setval(pg_get_serial_sequence('provincias',              'id_provincia'),      3);
 SELECT setval(pg_get_serial_sequence('distritos',               'id_distrito'),       3);
 SELECT setval(pg_get_serial_sequence('agencias',                'id_agencia'),        2);
-SELECT setval(pg_get_serial_sequence('terminales',              'id_terminal'),       3);
+SELECT setval(pg_get_serial_sequence('terminales',              'id_terminal'),       5);
 SELECT setval(pg_get_serial_sequence('rutas',                   'id_ruta'),           2);
 SELECT setval(pg_get_serial_sequence('tarifas_ruta',            'id_tarifa'),         3);
 SELECT setval(pg_get_serial_sequence('buses',                   'id_bus'),            2);
