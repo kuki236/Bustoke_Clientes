@@ -222,6 +222,7 @@ function passengerFromUser(user) {
     maternalSurname: String(
       pick('maternalSurname', 'apellidoMaterno', 'apellido_materno'),
     ).trim(),
+    fechaNacimiento: pick('fechaNacimiento', 'fecha_nacimiento'),
   }
 }
 
@@ -1363,8 +1364,8 @@ export default function CheckoutPage({
                     profilePassenger.paternalSurname || p.paternalSurname,
                   maternalSurname:
                     profilePassenger.maternalSurname || p.maternalSurname,
-// fechaNacimiento NO se copia del perfil: el registro
-
+                  fechaNacimiento:
+                    profilePassenger.fechaNacimiento || p.fechaNacimiento,
                 }
               : p,
           ),
