@@ -216,6 +216,7 @@ function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
     correo: '',
     contrasena: '',
     telefono: '',
+    fecha_nacimiento: '',
   })
   const [acceptTerms, setAcceptTerms] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -264,6 +265,7 @@ function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
         telefono: form.telefono.trim(),
         email: form.correo.trim(),
         contrasena: form.contrasena,
+        fecha_nacimiento: form.fecha_nacimiento || null,
       })
     } catch (err) {
       const status = err?.status
@@ -356,6 +358,15 @@ function RegisterForm({ onChangeMode, onBack, isDesktop = false }) {
         pattern="[0-9]{9}"
         value={form.telefono}
         onChange={update('telefono')}
+      />
+      <FormField
+        id="fecha_nacimiento"
+        name="fecha_nacimiento"
+        type="date"
+        label="Fecha de Nacimiento (opcional)"
+        autoComplete="bday"
+        value={form.fecha_nacimiento}
+        onChange={update('fecha_nacimiento')}
       />
       <FormField
         id="correo"

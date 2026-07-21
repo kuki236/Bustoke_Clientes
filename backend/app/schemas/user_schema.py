@@ -57,6 +57,10 @@ class RegisterSchema(BaseModel):
         alias="contrasena",
         description="Contraseña en texto plano (se hashea con bcrypt)",
     )
+    fecha_nacimiento: Optional[date] = Field(
+        default=None,
+        description="Fecha de nacimiento del pasajero (opcional en registro)",
+    )
 
     model_config = ConfigDict(populate_by_name=True, str_strip_whitespace=True)
 
@@ -135,7 +139,7 @@ class UsuarioRead(UsuarioBase):
     numero_documento: Optional[str] = None
     id_tipo_documento: Optional[int] = None
     tipo_documento: Optional[str] = None
-
+    fecha_nacimiento: Optional[date] = None
 
 class UsuarioInDB(UsuarioRead):
     """Usuario completo tal y como está almacenado (incluye hash)."""

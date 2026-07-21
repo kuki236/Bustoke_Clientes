@@ -319,6 +319,41 @@ def test_register_crea_fila_pasajero_atomicamente(client, db_session):
     assert pasajero.fecha_nacimiento is None
 
 
+def test_register_guarda_fecha_nacimiento_cuando_se_envia(client, db_session):
+    """
+    Si el payload de registro incluye `fecha_nacimiento`,
+    ésta debe persistirse en la fila `pasajeros`.
+    """
+    from app.models import Pasajero, Usuario
+
+    payload = {
+        "nombres": "Luis",
+        "apellido_paterno": "Garcia",
+        "apellido_materno": "Torres",
+        "tipo_documento": "DNI",
+        "numero_documento": "99887766",
+        "telefono": "987111222",
+        "email": "luis.fecha@bustoke-test.com",
+        "contrasena": "MiPassword123!",
+        "fecha_nacimiento": "1998-03-22",
+    }
+    r = client.post("/v1/auth/register", json=payload)
+    assert_status_code(r, 201)
+
+    usuario = (
+        db_session.query(Usuario)
+        .filter(Usuario.email == payload["email"])
+        .first()
+    )
+    pasajero = (
+        db_session.query(Pasajero)
+        .filter(Pasajero.id_usuario == usuario.id_usuario)
+        .first()
+    )
+    assert pasajero is not None
+    assert str(pasajero.fecha_nacimiento) == payload["fecha_nacimiento"]
+
+
 def test_register_tipo_documento_inexistente_devuelve_422(client):
     """
     Si el `tipo_documento` no está en el catálogo, el registro
