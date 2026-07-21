@@ -114,7 +114,7 @@ class AuthService:
             nombres=payload.nombres,
             apellido_paterno=payload.apellido_paterno,
             apellido_materno=payload.apellido_materno,
-            fecha_nacimiento=None,
+            fecha_nacimiento=payload.fecha_nacimiento,
         )
         self.pasajeros.add(new_pasajero)
 
@@ -204,6 +204,7 @@ class AuthService:
             usuario_read.apellido_materno = pasajero.apellido_materno
             usuario_read.numero_documento = pasajero.numero_documento
             usuario_read.id_tipo_documento = pasajero.id_tipo_documento
+            usuario_read.fecha_nacimiento = pasajero.fecha_nacimiento
             tipo = self.pasajeros.get_tipo_documento(pasajero.id_tipo_documento)
             if tipo is not None:
                 usuario_read.tipo_documento = tipo.nombre

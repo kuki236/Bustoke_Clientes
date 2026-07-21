@@ -91,6 +91,7 @@ export function AuthProvider({ children }) {
         email: formData.email ?? formData.correo,
         contrasena: formData.contrasena ?? formData.password,
         telefono: formData.telefono,
+        fecha_nacimiento: formData.fecha_nacimiento,
       })
       if (accessToken) {
         setAccessToken(accessToken)

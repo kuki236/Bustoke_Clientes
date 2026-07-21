@@ -59,6 +59,7 @@ export function normalizeUser(rawUser) {
   const telefono = pick('telefono', 'phone')
   const email = pick('email', 'correo')
   const idUsuario = pick('id_usuario', 'idUsuario', 'id')
+  const fechaNacimiento = pick('fecha_nacimiento', 'fechaNacimiento')
 
   return {
     id: idUsuario,
@@ -85,6 +86,8 @@ export function normalizeUser(rawUser) {
     numeroDocumento: numeroDocumento,
     docNumber: numeroDocumento,
     telefono,
+    fecha_nacimiento: fechaNacimiento,
+    fechaNacimiento,
     raw: rawUser,
   }
 }
@@ -115,6 +118,7 @@ export async function registerRequest({
   email,
   contrasena,
   telefono,
+  fecha_nacimiento,
 }) {
   // FIX BUG-002/020: lowercase en email para evitar duplicados por case.
   const payload = {
@@ -128,6 +132,8 @@ export async function registerRequest({
   }
   const tel = String(telefono || '').trim()
   if (tel) payload.telefono = tel
+  const fecha = String(fecha_nacimiento || '').trim()
+  if (fecha) payload.fecha_nacimiento = fecha
   const { data } = await axiosInstance.post('/auth/register', payload)
   return {
     accessToken: extractAccessToken(data),
